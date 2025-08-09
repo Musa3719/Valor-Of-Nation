@@ -1,4 +1,5 @@
 using UnityEngine;
+using UnityEngine.EventSystems;
 using UnityEngine.InputSystem;
 
 public class CameraController : MonoBehaviour
@@ -18,6 +19,9 @@ public class CameraController : MonoBehaviour
 
     public Vector3 _TargetSpeed { get; set; }
 
+    public float _InputXOffset { get; set; }
+
+
     private float _baseYPos;
     private float _targetYAngle;
 
@@ -31,12 +35,17 @@ public class CameraController : MonoBehaviour
     {
         if (GameManager._Instance._IsGameStopped) return;
 
-        Physics.Raycast(transform.position, -Vector3.up, out RaycastHit hit, 20000f, GameManager._Instance._TerrainRayLayers);
+        Physics.Raycast(transform.position, -Vector3.up, out RaycastHit hit, 20000f, GameManager._Instance._TerrainAndWaterLayers);
         _baseYPos = hit.point.y;
         transform.parent.transform.position = new Vector3(transform.parent.transform.position.x, Mathf.Lerp(transform.parent.transform.position.y, _baseYPos, Time.deltaTime * 3f), transform.parent.transform.position.z);
 
         if (GameManager._Instance._InputActions.FindAction("RotateCamera").ReadValue<float>() != 0)
-            _targetYAngle += Mouse.current.delta.x.ReadValue() * 0.18f;
+        {
+            _targetYAngle += Mouse.current.delta.x.ReadValue() * Time.deltaTime * 12f;
+            _InputXOffset -= Mouse.current.delta.y.ReadValue() * Time.deltaTime * 25f;
+        }
+        _InputXOffset = Mathf.Clamp(_InputXOffset, -40f, 5f);
+
         _targetYAngle = _targetYAngle % 360f;
         if (_targetYAngle < 0)
             _targetYAngle += 360f;
@@ -59,11 +68,13 @@ public class TacticalMapState : MapState
 
     public override void Enter(MapState oldState)
     {
-        _zoomAmount = 40f;
-        CameraController._Instance._TargetZoom = 450f;
-        CameraController._Instance._TargetXAngle = 45f;
+        _zoomAmount = 70f;
+        CameraController._Instance._TargetZoom = 500f;
+        CameraController._Instance._TargetXAngle = 60f;
         CameraController._Instance._MoveSpeedLimit = 40f;
         CameraController._Instance._LerpSpeed = 3.5f;
+
+        CameraController._Instance._InputXOffset -= 15f;
     }
     public override void Exit(MapState newState)
     {
@@ -89,14 +100,17 @@ public class TacticalMapState : MapState
         CameraController._Instance._MoveSpeed = Vector3.Lerp(CameraController._Instance._MoveSpeed, CameraController._Instance._TargetSpeed, Time.deltaTime *
             (CameraController._Instance._TargetSpeedMagnitude != 0f ? CameraController._Instance._LerpSpeed : CameraController._Instance._LerpSpeed * 1.5f));
 
-        CameraController._Instance._ZoomInput = GameManager._Instance._InputActions.FindAction("ScrollWheel").ReadValue<Vector2>();
-        if (CameraController._Instance._ZoomInput.y == 1f && CameraController._Instance._TargetZoom > 200f)
+        if (!(EventSystem.current != null && EventSystem.current.IsPointerOverGameObject()))
         {
-            CameraController._Instance._TargetZoom -= _zoomAmount;
-        }
-        else if (CameraController._Instance._ZoomInput.y == -1f && CameraController._Instance._TargetZoom < 900f)
-        {
-            CameraController._Instance._TargetZoom += _zoomAmount;
+            CameraController._Instance._ZoomInput = GameManager._Instance._InputActions.FindAction("ScrollWheel").ReadValue<Vector2>();
+            if (CameraController._Instance._ZoomInput.y == 1f && CameraController._Instance._TargetZoom > 100f)
+            {
+                CameraController._Instance._TargetZoom -= _zoomAmount;
+            }
+            else if (CameraController._Instance._ZoomInput.y == -1f && CameraController._Instance._TargetZoom < 900f)
+            {
+                CameraController._Instance._TargetZoom += _zoomAmount;
+            }
         }
 
     }
@@ -105,11 +119,11 @@ public class TacticalMapState : MapState
         if (GameManager._Instance._IsGameStopped)
             return;
 
+        float targetXAngle = CameraController._Instance._TargetXAngle + CameraController._Instance._InputXOffset;
         CameraController._Instance.transform.localPosition += Time.deltaTime * CameraController._Instance._MoveSpeed * 6f;
         CameraController._Instance.transform.localPosition = new Vector3(CameraController._Instance.transform.localPosition.x, Mathf.Lerp(CameraController._Instance.transform.localPosition.y, CameraController._Instance._TargetZoom, Time.deltaTime * 5f), CameraController._Instance.transform.localPosition.z);
-        CameraController._Instance.transform.localEulerAngles = new Vector3(Mathf.Lerp(CameraController._Instance.transform.localEulerAngles.x, CameraController._Instance._TargetXAngle, Time.deltaTime * 5f), CameraController._Instance.transform.localEulerAngles.y, CameraController._Instance.transform.localEulerAngles.z);
+        CameraController._Instance.transform.localEulerAngles = new Vector3(Mathf.Lerp(CameraController._Instance.transform.localEulerAngles.x, targetXAngle, Time.deltaTime * 5f), CameraController._Instance.transform.localEulerAngles.y, CameraController._Instance.transform.localEulerAngles.z);
         CameraController._Instance.transform.localPosition = new Vector3(Mathf.Clamp(CameraController._Instance.transform.localPosition.x, -16000f, 16000f), CameraController._Instance.transform.localPosition.y, Mathf.Clamp(CameraController._Instance.transform.localPosition.z, -16000f, 16000f));
-
     }
 }
 public class StrategicMapState : MapState
@@ -118,11 +132,13 @@ public class StrategicMapState : MapState
 
     public override void Enter(MapState oldState)
     {
-        _zoomAmount = 200f;
+        _zoomAmount = 300f;
         CameraController._Instance._TargetZoom = 3000f;
         CameraController._Instance._TargetXAngle = 60f;
         CameraController._Instance._MoveSpeedLimit = 80f;
         CameraController._Instance._LerpSpeed = 4f;
+
+        CameraController._Instance._InputXOffset += 15f;
 
         var terrains = GameObject.FindObjectsByType<Terrain>(FindObjectsSortMode.None);
         foreach (var terrain in terrains)
@@ -158,25 +174,28 @@ public class StrategicMapState : MapState
         CameraController._Instance._MoveSpeed = Vector3.Lerp(CameraController._Instance._MoveSpeed, CameraController._Instance._TargetSpeed, Time.deltaTime *
             (CameraController._Instance._TargetSpeedMagnitude != 0f ? CameraController._Instance._LerpSpeed : CameraController._Instance._LerpSpeed * 1.5f));
 
-        CameraController._Instance._ZoomInput = GameManager._Instance._InputActions.FindAction("ScrollWheel").ReadValue<Vector2>();
-        if (CameraController._Instance._ZoomInput.y == 1f && CameraController._Instance._TargetZoom > 1600f)
+        if (!(EventSystem.current != null && EventSystem.current.IsPointerOverGameObject()))
         {
-            CameraController._Instance._TargetZoom -= _zoomAmount;
+            CameraController._Instance._ZoomInput = GameManager._Instance._InputActions.FindAction("ScrollWheel").ReadValue<Vector2>();
+            if (CameraController._Instance._ZoomInput.y == 1f && CameraController._Instance._TargetZoom > 1600f)
+            {
+                CameraController._Instance._TargetZoom -= _zoomAmount;
+            }
+            else if (CameraController._Instance._ZoomInput.y == -1f && CameraController._Instance._TargetZoom < 7500f)
+            {
+                CameraController._Instance._TargetZoom += _zoomAmount;
+            }
         }
-        else if (CameraController._Instance._ZoomInput.y == -1f && CameraController._Instance._TargetZoom < 7500f)
-        {
-            CameraController._Instance._TargetZoom += _zoomAmount;
-        }
-
     }
     public override void LateUpdate()
     {
         if (GameManager._Instance._IsGameStopped)
             return;
 
+        float targetXAngle = CameraController._Instance._TargetXAngle + CameraController._Instance._InputXOffset / 2.35f;
         CameraController._Instance.transform.localPosition += Time.deltaTime * CameraController._Instance._MoveSpeed * 30f;
         CameraController._Instance.transform.localPosition = new Vector3(CameraController._Instance.transform.localPosition.x, Mathf.Lerp(CameraController._Instance.transform.localPosition.y, CameraController._Instance._TargetZoom, Time.deltaTime * 5f), CameraController._Instance.transform.localPosition.z);
-        CameraController._Instance.transform.localEulerAngles = new Vector3(Mathf.Lerp(CameraController._Instance.transform.localEulerAngles.x, CameraController._Instance._TargetXAngle, Time.deltaTime * 5f), CameraController._Instance.transform.localEulerAngles.y, CameraController._Instance.transform.localEulerAngles.z);
+        CameraController._Instance.transform.localEulerAngles = new Vector3(Mathf.Lerp(CameraController._Instance.transform.localEulerAngles.x, targetXAngle, Time.deltaTime * 5f), CameraController._Instance.transform.localEulerAngles.y, CameraController._Instance.transform.localEulerAngles.z);
         CameraController._Instance.transform.localPosition = new Vector3(Mathf.Clamp(CameraController._Instance.transform.localPosition.x, -16000f, 16000f), CameraController._Instance.transform.localPosition.y, Mathf.Clamp(CameraController._Instance.transform.localPosition.z, -16000f, 16000f));
 
     }

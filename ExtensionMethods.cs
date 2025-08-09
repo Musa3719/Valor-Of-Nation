@@ -1,8 +1,32 @@
 using System.Collections.Generic;
 using UnityEngine;
 using UnityEngine.Splines;
+using UnityEngine.UI;
+
 public static class ExtensionMethods
 {
+    public static bool Contains(this Button[] buttons, GameObject isContainsObj)
+    {
+        if (buttons == null) return false;
+
+        foreach (var button in buttons)
+        {
+            if (button.gameObject == isContainsObj) return true;
+        }
+        return false;
+    }
+    public static bool Contains(this Slider[] sliders, GameObject isContainsObj)
+    {
+        if (sliders == null) return false;
+
+        foreach (var slider in sliders)
+        {
+            if (slider.gameObject == isContainsObj || slider.transform.Find("Background").gameObject == isContainsObj) return true;
+        }
+        return false;
+    }
+
+
     public static void ClearSelected(this List<GameObject> selectedObjects)
     {
         foreach (var selectedObj in selectedObjects)
@@ -13,6 +37,16 @@ public static class ExtensionMethods
                 selectedObj.transform.Find("CurrentRouteGhost").gameObject.SetActive(false);
         }
         selectedObjects.Clear();
+
+        GameInputController._Instance._SelectedSquads.ClearSelected();
+    }
+    public static void ClearSelected(this List<Squad> selectedSquads)
+    {
+        foreach (var selectedSquad in selectedSquads)
+        {
+            GameInputController._Instance.DeSelectSquad(selectedSquad);
+        }
+        selectedSquads.Clear();
     }
 
     public static void Reverse(this Spline spline)

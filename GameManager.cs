@@ -15,7 +15,15 @@ using UnityEditor;
 
 public class GameManager : MonoBehaviour
 {
-    public LayerMask _TerrainRayLayers;
+    public InputActionAsset _InputActions;
+    public LayerMask _TerrainAndWaterLayers;
+    public LayerMask _TerrainWaterAndUpperLayers;
+    public GameObject _LandUnitPrefab;
+    public GameObject _NavalUnitPrefab;
+    public GameObject _UnitUIPrefab;
+    public GameObject _SquadUIPrefab;
+    public Sprite _InfantryAttachedToTrucksIcon;
+    public List<Sprite> _UnitTypeIcons;
 
     public static GameManager _Instance;
 
@@ -25,13 +33,8 @@ public class GameManager : MonoBehaviour
     public GameObject _OptionsScreen { get; private set; }
     public TextMeshProUGUI _ProcessingScreenText { get; private set; }
     public GameObject _RoadCannotPlaceText { get; private set; }
-    public GameObject _BookScreen { get; private set; }
     public GameObject _ConstructionScreen { get; private set; }
     public GameObject _LoadingScreen { get; private set; }
-
-    public InputActionAsset _InputActions;
-
-    public MapState _MapState;
 
     public bool _IsGameStopped { get; private set; }
     public bool _IsGameLoading { get; set; }
@@ -41,6 +44,9 @@ public class GameManager : MonoBehaviour
     public GraphicRaycaster _Raycaster { get; set; }
     public PointerEventData _PointerEventData { get; set; }
     public EventSystem _EventSystem { get; set; }
+    public MapState _MapState;
+
+    public int _LastCreatedUnitIndex { get; set; }
 
     private Coroutine _slowTimeCoroutine;
 
@@ -59,7 +65,6 @@ public class GameManager : MonoBehaviour
             _InGameScreen = GameObject.FindGameObjectWithTag("UI").transform.Find("InGameScreen").gameObject;
             _ProcessingScreenText = GameObject.FindGameObjectWithTag("UI").transform.Find("ProcessingScreen").Find("Text (TMP)").GetComponent<TextMeshProUGUI>();
             _RoadCannotPlaceText = GameObject.FindGameObjectWithTag("UI").transform.Find("InGameScreen").transform.Find("RoadCannotPlaceText").gameObject;
-            _BookScreen = GameObject.FindGameObjectWithTag("UI").transform.Find("InGameScreen").Find("BookScreen").gameObject;
             _ConstructionScreen = GameObject.FindGameObjectWithTag("UI").transform.Find("InGameScreen").Find("ConstructionScreen").gameObject;
             _Raycaster = GameObject.Find("UI").GetComponent<GraphicRaycaster>();
             _EventSystem = FindFirstObjectByType<EventSystem>();
@@ -82,11 +87,22 @@ public class GameManager : MonoBehaviour
 
         if (Input.GetKeyDown(KeyCode.T))
         {
-            new GetOnShipOrder().ExecuteOrder(GameInputController._Instance._SelectedObjects[0]);
+            Infantry inf = new Infantry(GameInputController._Instance._SelectedUnits[0].GetComponent<Unit>());
+            inf._Amount = (int)Time.time;
+            GameInputController._Instance._SelectedUnits[0].GetComponent<Unit>()._Squads.Add(inf);
+            //new GetOnShipOrder().ExecuteOrder(GameInputController._Instance._SelectedUnits[0]);
         }
         if (Input.GetKeyDown(KeyCode.Y))
         {
-            new EvacuateShipOrder().ExecuteOrder(GameInputController._Instance._SelectedObjects[0]);
+            GameInputController._Instance._SelectedUnits[0].GetComponent<Unit>()._Squads.RemoveAt(0);
+            //new GetOnTruckOrder().ExecuteOrder(GameInputController._Instance._SelectedObjects[0]);
+            //new EvacuateShipOrder().ExecuteOrder(GameInputController._Instance._SelectedUnits[0]);
+
+        }
+        if (Input.GetKeyDown(KeyCode.U))
+        {
+            //new GetOffTruckOrder().ExecuteOrder(GameInputController._Instance._SelectedObjects[0]);
+            //new EvacuateShipOrder().ExecuteOrder(GameInputController._Instance._SelectedObjects[0]);
         }
 
         if (Input.GetKeyDown(KeyCode.L)) { SaveSystemHandler._Instance.LoadGame(0); }
@@ -101,10 +117,6 @@ public class GameManager : MonoBehaviour
 
             _MapState.Update();
 
-            if (_InputActions.FindAction("Book").triggered && _LevelIndex != 0 && !_IsGameStopped)
-            {
-                OpenOrCloseBookScreen(!_BookScreen.activeInHierarchy);
-            }
             if (_InputActions.FindAction("Construction").triggered && _LevelIndex != 0 && !_IsGameStopped)
             {
                 OpenOrCloseConstructionScreen(!_ConstructionScreen.activeInHierarchy);
@@ -127,12 +139,17 @@ public class GameManager : MonoBehaviour
                 }
                 else
                 {
-                    if (_ConstructionScreen.activeInHierarchy)
+                    if (_ConstructionScreen.activeInHierarchy && RoadBuilder._Instance._ActiveSplineContainer != null)
+                        RoadBuilder._Instance.ChangeActiveSplineContainer(null);
+                    else if (_ConstructionScreen.activeInHierarchy)
                         OpenOrCloseConstructionScreen(false);
-                    else if (_BookScreen.activeInHierarchy)
-                        OpenOrCloseBookScreen(false);
-                    else if (GameInputController._Instance._SelectedObjects.Count > 0)
-                        GameInputController._Instance._SelectedObjects.ClearSelected();
+                    else if (GameInputController._Instance._SelectedUnits.Count > 0)
+                    {
+                        GameInputController._Instance._SelectedUnits.ClearSelected();
+                        GameInputController._Instance.CloseAllInGameOtherUI();
+                    }
+                    else if (_InGameScreen.transform.Find("OtherInGameMenus").gameObject.activeInHierarchy)
+                        GameInputController._Instance.CloseAllInGameOtherUI();
                     else
                         StopGame();
                 }
@@ -149,6 +166,40 @@ public class GameManager : MonoBehaviour
         if (_LevelIndex != 0)
             _MapState.LateUpdate();
     }
+
+    public GameObject CreateLandUnit(Vector3 position, bool isEnemy = false, List<Squad> squads = null)
+    {
+        GameObject newUnit = Instantiate(_LandUnitPrefab, position, Quaternion.identity);
+        Unit unitComponent = newUnit.GetComponent<Unit>();
+        unitComponent._IsEnemy = isEnemy;
+
+        if (squads != null)
+            unitComponent._Squads = squads;
+
+        return newUnit;
+    }
+    public Transform[] GetNearChildTransforms(Transform parent)
+    {
+        int childCount = parent.childCount;
+        Transform[] children = new Transform[childCount];
+
+        for (int i = 0; i < childCount; i++)
+        {
+            children[i] = parent.GetChild(i);
+        }
+
+        return children;
+    }
+    public T GetThisTypeOfSquad<T>(GameObject executerObject) where T : class
+    {
+        foreach (var squad in executerObject.GetComponent<Unit>()._Squads)
+        {
+            if (squad is T)
+                return squad as T;
+        }
+        return null;
+    }
+
     private void StartButtonEvents()
     {
         if (_LevelIndex == 0)
@@ -172,6 +223,21 @@ public class GameManager : MonoBehaviour
         }
         else
         {
+            GameInputController._Instance._ArmyUIContent.transform.parent.parent.parent.Find("OrderUI").Find("MoveOrderButton").GetComponent<Button>().onClick.AddListener(SoundManager._Instance.PlayButtonSound);
+            GameInputController._Instance._ArmyUIContent.transform.parent.parent.parent.Find("OrderUI").Find("MoveOrderButton").GetComponent<Button>().onClick.AddListener(() => GameInputController._Instance._CurrentPlayerOrder = new MoveOrder());
+            GameInputController._Instance._ArmyUIContent.transform.parent.parent.parent.Find("OrderUI").Find("StopOrderButton").GetComponent<Button>().onClick.AddListener(SoundManager._Instance.PlayButtonSound);
+            GameInputController._Instance._ArmyUIContent.transform.parent.parent.parent.Find("OrderUI").Find("StopOrderButton").GetComponent<Button>().onClick.AddListener(() => GameInputController._Instance.ActivateStopOrder());
+            GameInputController._Instance._ArmyUIContent.transform.parent.parent.parent.Find("OrderUI").Find("SelectThisTypeButton").GetComponent<Button>().onClick.AddListener(SoundManager._Instance.PlayButtonSound);
+            GameInputController._Instance._ArmyUIContent.transform.parent.parent.parent.Find("OrderUI").Find("SelectThisTypeButton").GetComponent<Button>().onClick.AddListener(() => GameInputController._Instance.SelectThisTypeButtonClicked());
+            GameInputController._Instance._ArmyUIContent.transform.parent.parent.parent.Find("OrderUI").Find("SelectAllButton").GetComponent<Button>().onClick.AddListener(SoundManager._Instance.PlayButtonSound);
+            GameInputController._Instance._ArmyUIContent.transform.parent.parent.parent.Find("OrderUI").Find("SelectAllButton").GetComponent<Button>().onClick.AddListener(() => GameInputController._Instance.SelectAllSquadsButtonClicked());
+            GameInputController._Instance._ArmyUIContent.transform.parent.parent.parent.Find("OrderUI").Find("ToNewUnitButton").GetComponent<Button>().onClick.AddListener(SoundManager._Instance.PlayButtonSound);
+            GameInputController._Instance._ArmyUIContent.transform.parent.parent.parent.Find("OrderUI").Find("ToNewUnitButton").GetComponent<Button>().onClick.AddListener(() => GameInputController._Instance.ToNewUnitButtonClicked());
+            GameInputController._Instance._ArmyUIContent.transform.parent.parent.parent.Find("OrderUI").Find("SplitUnitButton").GetComponent<Button>().onClick.AddListener(SoundManager._Instance.PlayButtonSound);
+            GameInputController._Instance._ArmyUIContent.transform.parent.parent.parent.Find("OrderUI").Find("SplitUnitButton").GetComponent<Button>().onClick.AddListener(() => GameInputController._Instance.SplitUnitButtonClicked());
+            GameInputController._Instance._ArmyUIContent.transform.parent.parent.parent.Find("OrderUI").Find("ToNewSquadButton").GetComponent<Button>().onClick.AddListener(SoundManager._Instance.PlayButtonSound);
+            GameInputController._Instance._ArmyUIContent.transform.parent.parent.parent.Find("OrderUI").Find("ToNewSquadButton").GetComponent<Button>().onClick.AddListener(() => GameInputController._Instance.ToNewSquadButtonClicked());
+
             GameObject.FindGameObjectWithTag("UI").transform.Find("InGameScreen").Find("ConstructionScreen").Find("Remove").GetComponent<Button>().onClick.AddListener(SoundManager._Instance.PlayButtonSound);
             GameObject.FindGameObjectWithTag("UI").transform.Find("InGameScreen").Find("ConstructionScreen").Find("Remove").GetComponent<Button>().onClick.AddListener(() => TerrainController._Instance.ConstructionButtonClicked(0));
             GameObject.FindGameObjectWithTag("UI").transform.Find("InGameScreen").Find("ConstructionScreen").Find("Bridge").GetComponent<Button>().onClick.AddListener(SoundManager._Instance.PlayButtonSound);
@@ -192,6 +258,52 @@ public class GameManager : MonoBehaviour
             GameObject.FindGameObjectWithTag("UI").transform.Find("Options").Find("BackToMenu").GetComponent<Button>().onClick.AddListener(() => CloseOptionsScreen(true));
             GameObject.FindGameObjectWithTag("UI").transform.Find("Options").Find("MusicSlider").GetComponent<Slider>().onValueChanged.AddListener(Options._Instance.MusicVolumeChanged);
             GameObject.FindGameObjectWithTag("UI").transform.Find("Options").Find("SoundSlider").GetComponent<Slider>().onValueChanged.AddListener(Options._Instance.SoundVolumeChanged);
+        }
+    }
+    public Sprite GetUnitTypeIconFromSquad(Squad squad)
+    {
+        switch (squad)
+        {
+            case Infantry t:
+                return _UnitTypeIcons[0];
+            case Truck t:
+                return _UnitTypeIcons[1];
+            case Train t:
+                return _UnitTypeIcons[2];
+            case Tank t:
+                return _UnitTypeIcons[3];
+            case APC t:
+                return _UnitTypeIcons[4];
+            case Artillery t:
+                return _UnitTypeIcons[5];
+            case RocketArtillery t:
+                return _UnitTypeIcons[6];
+            case Mortar t:
+                return _UnitTypeIcons[7];
+            case MachineGun t:
+                return _UnitTypeIcons[8];
+            case AntiTank t:
+                return _UnitTypeIcons[9];
+            case AntiAir t:
+                return _UnitTypeIcons[10];
+            case PropellerPlane t:
+                return _UnitTypeIcons[11];
+            case JetPlane t:
+                return _UnitTypeIcons[12];
+            case Helicopter t:
+                return _UnitTypeIcons[13];
+            case CargoPlane t:
+                return _UnitTypeIcons[14];
+            case Cruiser t:
+                return _UnitTypeIcons[15];
+            case Destroyer t:
+                return _UnitTypeIcons[16];
+            case Corvette t:
+                return _UnitTypeIcons[17];
+            case Submarine t:
+                return _UnitTypeIcons[18];
+            default:
+                return _UnitTypeIcons[0];
         }
     }
     #region CommonMethods
@@ -275,6 +387,15 @@ public class GameManager : MonoBehaviour
             yield return new WaitForSecondsRealtime(time);
         else
             yield return new WaitForSeconds(time);
+        action?.Invoke();
+    }
+    public void CallForActionOneFrame(System.Action action)
+    {
+        StartCoroutine(CallForActionOneFrameCoroutine(action));
+    }
+    private IEnumerator CallForActionOneFrameCoroutine(System.Action action)
+    {
+        yield return null;
         action?.Invoke();
     }
     public Transform GetParent(Transform tr)
@@ -405,13 +526,12 @@ public class GameManager : MonoBehaviour
     {
         _ProcessingScreenText.enabled = isOpening;
     }
-    public void OpenOrCloseBookScreen(bool isOpening)
-    {
-        _BookScreen.SetActive(isOpening);
-    }
+
     public void OpenOrCloseConstructionScreen(bool isOpening)
     {
-        _ConstructionScreen.SetActive(isOpening);
+        if (isOpening)
+            GameInputController._Instance.CloseAllInGameOtherUI();
+        ; _ConstructionScreen.SetActive(isOpening);
     }
 
     public void Slowtime(float time)

@@ -10,21 +10,20 @@ public class BridgeUnitController : MonoBehaviour
         _UnitColliders = new List<Collider>();
     }
     
-    private void OnCollisionEnter(Collision collision)
+    private void OnTriggerEnter(Collider other)
     {
-        if (collision.collider != null && collision.collider.gameObject.layer == LayerMask.NameToLayer("Unit") && !_UnitColliders.Contains(collision.collider))
+        if (other != null && other.gameObject.layer == LayerMask.NameToLayer("Unit") && !_UnitColliders.Contains(other))
         {
-            _UnitColliders.Add(collision.collider);
+            _UnitColliders.Add(other);
         }
     }
-    private void OnCollisionExit(Collision collision)
+    private void OnTriggerExit(Collider other)
     {
-        if (collision.collider != null && collision.collider.gameObject.layer == LayerMask.NameToLayer("Unit") && _UnitColliders.Contains(collision.collider))
+        if (other != null && other.gameObject.layer == LayerMask.NameToLayer("Unit") && _UnitColliders.Contains(other))
         {
-            _UnitColliders.Remove(collision.collider);
+            _UnitColliders.Remove(other);
         }
     }
-   
 
     public bool IsCarryingAnyUnit()
     {

@@ -104,10 +104,12 @@ public class TerrainController : MonoBehaviour
     private void CheckForConstruction()
     {
         _mouseTerrainPoint = GetTerrainPointFromMouse();
+        //Debug.Log(_mouseTerrainPoint._TerrainUpperType);
         if (RoadBuilder._Instance._ActiveSplineContainer != null && RoadBuilder._Instance._RoadGhost.activeInHierarchy) RoadBuilder._Instance.UpdateRoadGhost(RoadBuilder._Instance._ActiveSplineContainer.Splines[0][RoadBuilder._Instance._ActiveSplineContainer.Splines[0].Count - 1].Position, _mouseTerrainPoint._Position, _mouseTerrainPoint);
         if (!_IsRemovalTool && _removalToolGhostObject != null) RemovalGhostBackToOriginal();
         if (_IsRemovalTool) { RoadBuilder._Instance._RoadPointGhost.SetActive(false); RoadBuilder._Instance._RoadGhost.SetActive(false); }
         if ((!GameManager._Instance._ConstructionScreen.activeInHierarchy || RoadBuilder._Instance._ActiveSplineContainer == null) && !_bridgeErrorFlag) { GameManager._Instance._RoadCannotPlaceText.SetActive(false); }
+        if (!GameManager._Instance._ConstructionScreen.activeInHierarchy) { RoadBuilder._Instance._RoadPointGhost.SetActive(false); }
         if (!GameManager._Instance._ConstructionScreen.activeInHierarchy) { _IsRemovalTool = false; RoadBuilder._Instance.ChangeActiveSplineContainer(null); }
         if ((!GameManager._Instance._ConstructionScreen.activeInHierarchy || _IsRemovalTool) && _constructionGhostObject != null) Destroy(_constructionGhostObject);
         if (GameManager._Instance._ConstructionScreen.activeInHierarchy) ArrangeConstructionGhostObject(_mouseTerrainPoint);
@@ -293,8 +295,9 @@ public class TerrainController : MonoBehaviour
         Vector3 rotatedTangent = Quaternion.Euler(0f, 90f, 0f) * tangent;
 
         RaycastHit hit;
-        Vector3 startPoint = Vector3.zero, endPoint = Vector3.zero;
+        Vector3 startPoint = riverHit.point, endPoint = riverHit.point;
         Vector3 offset = rotatedTangent;
+        int i = 0;
         while (true)
         {
             Physics.Raycast(Camera.main.transform.position, riverHit.point + offset - Camera.main.transform.position, out hit, 30000f, LayerMask.GetMask("Water"));
@@ -302,8 +305,9 @@ public class TerrainController : MonoBehaviour
             {
                 endPoint = hit.point;
                 offset += rotatedTangent;
+                i++;
             }
-            else if (offset.magnitude > rotatedTangent.magnitude * 200)
+            else if (i > 200)
             {
                 Debug.LogError("While take too long...");
                 break;
@@ -311,6 +315,7 @@ public class TerrainController : MonoBehaviour
             else
                 break;
         }
+        i = 0;
         offset = -rotatedTangent;
         while (true)
         {
@@ -319,8 +324,9 @@ public class TerrainController : MonoBehaviour
             {
                 startPoint = hit.point;
                 offset -= rotatedTangent;
+                i++;
             }
-            else if (offset.magnitude > rotatedTangent.magnitude * 200)
+            else if (i > 200)
             {
                 Debug.LogError("While take too long...");
                 break;
@@ -330,7 +336,12 @@ public class TerrainController : MonoBehaviour
         }
 
         Vector3 targetPos = (startPoint + endPoint) / 2f;
-        _constructionGhostObject.transform.position = targetPos - Vector3.up * 2.5f;
+        _constructionGhostObject.transform.position = targetPos - Vector3.up * 5f;
+
+        if (Vector3.Dot(_constructionGhostObject.transform.forward, tangent) < 0f)
+        {
+            tangent = -tangent;
+        }
 
         Quaternion rotation = Quaternion.identity;
         Physics.Raycast(Camera.main.transform.position, targetPos - Camera.main.transform.position, out RaycastHit finalHit, 30000f, LayerMask.GetMask("Water"));
@@ -383,8 +394,10 @@ public class TerrainController : MonoBehaviour
         _constructionGhostObject.tag = "Untagged";
         if (_constructionGhostObject.GetComponentInChildren<BridgeUnitController>() != null)
         {
+            _constructionGhostObject.layer = LayerMask.NameToLayer("Ignore Raycast");
+            _constructionGhostObject.tag = "Untagged";
+
             _constructionGhostObject.AddComponent<BridgeConstructionGhost>();
-            Destroy(_constructionGhostObject.GetComponentInChildren<BridgeUnitController>().gameObject);
             Destroy(_constructionGhostObject.GetComponent<Rigidbody>());
         }
         else
@@ -457,7 +470,7 @@ public class TerrainController : MonoBehaviour
 
     public TerrainPoint GetTerrainPointFromObject(Transform transform)
     {
-        Ray terrainRay = new Ray(transform.position, Vector3.down);
+        Ray terrainRay = new Ray(transform.position + transform.up * 100f, -transform.up);
         return GetTerrainCommon(terrainRay);
     }
     public TerrainPoint GetTerrainPointFromMouse()
@@ -468,7 +481,7 @@ public class TerrainController : MonoBehaviour
     private TerrainPoint GetTerrainCommon(Ray terrainRay)
     {
         TerrainPoint terrainPoint = new TerrainPoint();
-        if (Physics.Raycast(terrainRay, out RaycastHit hit, 30000f, GameManager._Instance._TerrainRayLayers) && hit.collider != null)
+        if (Physics.Raycast(terrainRay, out RaycastHit hit, 30000f, GameManager._Instance._TerrainAndWaterLayers) && hit.collider != null)
         {
             terrainPoint._Position = hit.point;
             terrainPoint._Normal = hit.normal;
@@ -479,6 +492,10 @@ public class TerrainController : MonoBehaviour
         }
         if (Physics.Raycast(terrainRay, out hit, 30000f, LayerMask.GetMask("UpperTerrain")) && hit.collider != null)
         {
+            if (hit.collider.CompareTag("Bridge"))
+                terrainPoint._BridgeHitPosition = hit.point;
+            else if (hit.collider.CompareTag("DirtRoad") || hit.collider.CompareTag("AsphaltRoad") || hit.collider.CompareTag("RailRoad"))
+                terrainPoint._RoadHitPosition = hit.point;
             terrainPoint._TerrainUpperType = GetUpperType(hit);
             terrainPoint._UpperTypeObject = GetUpperTypeObject(hit);
         }
@@ -663,7 +680,7 @@ public class TerrainController : MonoBehaviour
         while (lerpValue < 1f)
         {
             tempPos = Vector3.Lerp(startPos, endPos, lerpValue);
-            Physics.Raycast(tempPos + Vector3.up * 100f, -Vector3.up, out hit, 200f, GameManager._Instance._TerrainRayLayers);
+            Physics.Raycast(tempPos + Vector3.up * 100f, -Vector3.up, out hit, 200f, GameManager._Instance._TerrainWaterAndUpperLayers);
             if (hit.collider != null && hit.collider.gameObject.layer == checkLayer && (tempPos - startPos).magnitude > 5f)
                 return true;
             if (hit.collider != null && hit.collider.gameObject.CompareTag("River") && (tempPos - startPos).magnitude > 5f)
@@ -673,6 +690,62 @@ public class TerrainController : MonoBehaviour
         return false;
     }
 
+    public Vector3 GetClosestRoadKnot(Vector3 pos)
+    {
+        float closestDistance = float.MaxValue;
+        Vector3 closestPoint = pos;
+        float snapDistance = 25000f;
+
+        foreach (Transform road in GameObject.Find("RoadSystemDirt").transform)
+        {
+            if (road.name == "Pool") continue;
+
+            Spline spl = road.GetComponent<SplineContainer>().Splines[0];
+
+            for (int i = 0; i < spl.Count; i++)
+            {
+                float dist = (road.transform.TransformPoint(spl[i].Position) - pos).magnitude;
+                if (dist < closestDistance && dist < snapDistance)
+                {
+                    closestDistance = dist;
+                    closestPoint = road.transform.TransformPoint(spl[i].Position);
+                }
+            }
+        }
+        foreach (Transform road in GameObject.Find("RoadSystemAsphalt").transform)
+        {
+            if (road.name == "Pool") continue;
+
+            Spline spl = road.GetComponent<SplineContainer>().Splines[0];
+
+            for (int i = 0; i < spl.Count; i++)
+            {
+                float dist = (road.transform.TransformPoint(spl[i].Position) - pos).magnitude;
+                if (dist < closestDistance && dist < snapDistance)
+                {
+                    closestDistance = dist;
+                    closestPoint = road.transform.TransformPoint(spl[i].Position);
+                }
+            }
+        }
+        foreach (Transform road in GameObject.Find("RoadSystemRail").transform)
+        {
+            if (road.name == "Pool") continue;
+
+            Spline spl = road.GetComponent<SplineContainer>().Splines[0];
+
+            for (int i = 0; i < spl.Count; i++)
+            {
+                float dist = (road.transform.TransformPoint(spl[i].Position) - pos).magnitude;
+                if (dist < closestDistance && dist < snapDistance)
+                {
+                    closestDistance = dist;
+                    closestPoint = road.transform.TransformPoint(spl[i].Position);
+                }
+            }
+        }
+        return closestPoint;
+    }
     public Vector3 GetClosestPointToRoad(Vector3 mouseWorldPos)
     {
         float closestDistance = float.MaxValue;
@@ -771,6 +844,8 @@ public enum TerrainUpperType
 public class TerrainPoint
 {
     public Vector3 _Position;
+    public Vector3 _BridgeHitPosition;
+    public Vector3 _RoadHitPosition;
     public Vector3 _Normal;
     public float _Temperature;
     public float _BaseSupplyMultiplier;

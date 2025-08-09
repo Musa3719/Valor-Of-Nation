@@ -1,6 +1,7 @@
 using UnityEngine;
 using UnityEngine.Splines;
 using System.Collections.Generic;
+using Unity.Mathematics;
 
 public class RoadBuilder : MonoBehaviour
 {
@@ -16,7 +17,7 @@ public class RoadBuilder : MonoBehaviour
 
     public float _SnapDistance = 20f;
     private float _maxRoadMagnitude = 1000f;
-    private float _heightOffset = 1.5f;
+    private float _heightOffset = 1f;
 
     private void Awake()
     {
@@ -37,8 +38,8 @@ public class RoadBuilder : MonoBehaviour
 
     public void UpdateRoadGhost(Vector3 firstPos, Vector3 secondPos, TerrainPoint point)
     {
-        firstPos += Vector3.up * 5f;
-        secondPos += Vector3.up * 10f;
+        firstPos += Vector3.up * 12f;
+        secondPos += Vector3.up * 12f;
         _RoadGhost.SetActive(true);
         _RoadGhost.GetComponent<LineRenderer>().SetPosition(0, firstPos);
         _RoadGhost.GetComponent<LineRenderer>().SetPosition(1, secondPos);
@@ -57,7 +58,7 @@ public class RoadBuilder : MonoBehaviour
     public bool IsRoadTooShort(Vector3 worldPos)
     {
         Vector3 lastKnotPosition = _ActiveSplineContainer.transform.TransformPoint(_ActiveSplineContainer.Splines[0][_ActiveSplineContainer.Splines[0].Count - 1].Position);
-        if ((worldPos - lastKnotPosition).magnitude < 20)
+        if ((worldPos - lastKnotPosition).magnitude < 40)
             return true;
         return false;
     }
@@ -68,7 +69,7 @@ public class RoadBuilder : MonoBehaviour
             Vector3 firstDirection = ((Vector3)(_ActiveSplineContainer.Splines[0][_ActiveSplineContainer.Splines[0].Count - 1].Position - _ActiveSplineContainer.Splines[0][_ActiveSplineContainer.Splines[0].Count - 2].Position)).normalized;
             Vector3 secondDirection = (_ActiveSplineContainer.transform.InverseTransformPoint(worldPos) - (Vector3)_ActiveSplineContainer.Splines[0][_ActiveSplineContainer.Splines[0].Count - 1].Position).normalized;
             float angle = Vector3.Angle(firstDirection, secondDirection);
-            if (angle > 105f)
+            if (angle > 60f)
                 return true;
             return false;
         }
@@ -88,7 +89,8 @@ public class RoadBuilder : MonoBehaviour
 
                 float height = terrain.SampleHeight(pos);
                 Vector3 terrainNormal = terrain.terrainData.GetInterpolatedNormal(normX, normZ);
-                Vector3 offset = terrainNormal * 3.25f;
+                Vector3 offset = terrainNormal * 5f;
+                offset = offset.y < 0 ? Vector3.zero : offset;
                 return (new Vector3(pos.x, height, pos.z) + offset).y;
 
                 //return hit.point.y;
@@ -105,28 +107,106 @@ public class RoadBuilder : MonoBehaviour
         }
 
         Vector3[] vertices = mesh.vertices;
+        int[] triangles = mesh.triangles;
 
         for (int i = 0; i < vertices.Length; i++)
         {
             Vector3 worldPos = meshTransform.TransformPoint(vertices[i]);
 
-            float terrainHeight = GetTerrainHeightAtPosition(worldPos, 300f);
+            float terrainHeight = GetTerrainHeightAtPosition(worldPos, 300f) + UnityEngine.Random.Range(-0.01f, 0.01f);
             Vector3 adjustedWorldPos = new Vector3(worldPos.x, terrainHeight + _heightOffset, worldPos.z);
             vertices[i] = meshTransform.InverseTransformPoint(adjustedWorldPos);
-        }
 
+            if (i % 4 < 2)
+                vertices[i].y -= 20f;
+        }
         mesh.vertices = vertices;
         mesh.RecalculateBounds();
         mesh.RecalculateNormals();
-        meshTransform.GetComponent<MeshRenderer>().enabled = true;
+
+        List<int> topTriangles = new List<int>();
+        List<int> otherTriangles = new List<int>();
+        for (int i = 0; i < triangles.Length; i += 3)
+        {
+            if (i + 2 >= triangles.Length) continue;
+
+            int i0 = triangles[i];
+            int i1 = triangles[i + 1];
+            int i2 = triangles[i + 2];
+
+            Vector3 v0 = vertices[i0];
+            Vector3 v1 = vertices[i1];
+            Vector3 v2 = vertices[i2];
+
+            Vector3 side1 = v1 - v0;
+            Vector3 side2 = v2 - v0;
+
+            Vector3 normal = Vector3.Cross(side1, side2).normalized;
+            float dot = Vector3.Dot(normal, Vector3.up);
+
+            if (dot > 0.7f) // 0.9 yerine tolerans deðerini ayarlayabilirsin
+            {
+                topTriangles.Add(i0);
+                topTriangles.Add(i1);
+                topTriangles.Add(i2);
+            }
+            else
+            {
+                otherTriangles.Add(i0);
+                otherTriangles.Add(i1);
+                otherTriangles.Add(i2);
+            }
+        }
+
+        mesh.subMeshCount = 2;
+        mesh.SetTriangles(topTriangles.ToArray(), 0);
+        mesh.SetTriangles(otherTriangles.ToArray(), 1);
+
+        mesh.RecalculateBounds();
+        mesh.RecalculateNormals();
     }
-    private void ReArrangeSpline(SplineContainer container)
+
+    public void ReArrangeSpline(SplineContainer container)
     {
         //container.Splines[0].ConvertToCurved();
+        for (int i = 0; i < container[0].Count; i++)
+        {
+            if (i != 0 && i != container[0].Count - 1)
+                container[0].SetTangentMode(i, TangentMode.AutoSmooth);
+        }
         container.GetComponent<SplineExtrude>().Capped = true;
         container.GetComponent<SplineExtrude>().Rebuild();
-        container.GetComponent<MeshRenderer>().enabled = false;
         GameManager._Instance.CallForAction(() => RoadMeshToTerrainHeight(container.GetComponent<MeshFilter>().sharedMesh, container.transform), 0.01f, false);
+    }
+    public RoadSplineData GetRoadDataForSaving(GameObject containerObj)
+    {
+        RoadSplineData newData = new RoadSplineData();
+        newData._RoadKnotPositions = new List<float3>();
+        newData._RoadKnotRotations = new List<quaternion>();
+        newData._RoadKnotTangentIn = new List<float3>();
+        newData._RoadKnotTangentOut = new List<float3>();
+        SplineContainer container = containerObj.GetComponent<SplineContainer>();
+        foreach (BezierKnot knot in container.Splines[0])
+        {
+            newData._RoadKnotPositions.Add(knot.Position);
+            newData._RoadKnotRotations.Add(knot.Rotation);
+            newData._RoadKnotTangentIn.Add(knot.TangentIn);
+            newData._RoadKnotTangentOut.Add(knot.TangentOut);
+        }
+        return newData;
+    }
+    public void SetRoadDataForLoading(GameObject roadObj, RoadSplineData data)
+    {
+        for (int i = 0; i < data._RoadKnotPositions.Count; i++)
+        {
+            BezierKnot newKnot = new BezierKnot();
+            newKnot.Position = data._RoadKnotPositions[i];
+            newKnot.Rotation = data._RoadKnotRotations[i];
+            newKnot.TangentIn = data._RoadKnotTangentIn[i];
+            newKnot.TangentOut = data._RoadKnotTangentOut[i];
+
+            roadObj.GetComponent<SplineContainer>().Splines[0].Add(newKnot);
+        }
     }
     public void AddRoad(TerrainPoint terrainPoint)
     {
@@ -177,6 +257,7 @@ public class RoadBuilder : MonoBehaviour
         Vector3 worldPosOld = worldPos;
         float snapDistance = _SnapDistance;
         Transform containerTransform = GetContainer(TerrainController._Instance._SelectedConstructionType);
+        Vector3 snappedKnotDirection = Vector3.zero;
         foreach (Transform containerObject in containerTransform.transform)
         {
             if (containerObject.name == "Pool") continue;
@@ -188,6 +269,14 @@ public class RoadBuilder : MonoBehaviour
                 {
                     worldPos = knotWorldPos;
                     snapDistance = Vector3.Distance(new Vector3(worldPosOld.x, 0f, worldPosOld.z), new Vector3(knotWorldPos.x, 0f, knotWorldPos.z));
+
+                    if (spline.Count > 1 && (i == 0 || i == spline.Count - 1))
+                    {
+                        if (i == 0)
+                            snappedKnotDirection = ((Vector3)(spline[1].Position - spline[0].Position)).normalized;
+                        else if (i == spline.Count - 1)
+                            snappedKnotDirection = ((Vector3)(spline[spline.Count - 2].Position - spline[spline.Count - 1].Position)).normalized;
+                    }
                 }
             }
         }
@@ -195,16 +284,29 @@ public class RoadBuilder : MonoBehaviour
         worldPos.y = GetTerrainHeightAtPosition(worldPos, 1000f);
         Vector3 localStart = _ActiveSplineContainer.transform.InverseTransformPoint(worldPos);
 
-        Vector3 tangent = Vector3.zero;
+        Vector3 tangentOut = Vector3.zero;
         int knotCount = _ActiveSplineContainer.Splines[0].Count;
         if (knotCount > 0)
         {
             var prevKnot = _ActiveSplineContainer.Splines[0][knotCount - 1];
             Vector3 prevPos = prevKnot.Position;
-            tangent = (localStart - prevPos).normalized * 5f;
+            tangentOut = (localStart - prevPos).normalized * 5f;
+        }
+        Vector3 tangentIn = -tangentOut;
+
+        if (knotCount > 0 && snappedKnotDirection != Vector3.zero)
+        {
+            Vector3 newRoadDir = (worldPos - (Vector3)_ActiveSplineContainer.Splines[0][knotCount - 1].Position).normalized;
+            Vector3 avgDir = (newRoadDir + snappedKnotDirection).normalized;
+
+            float tangentLength = 2f;
+            Vector3 tangent = avgDir * tangentLength;
+            tangentIn.z = -tangent.z;
+            tangentIn.y = 0f;
+            tangentIn.x = 0f;
         }
 
-        _ActiveSplineContainer.Splines[0].Add(new BezierKnot(localStart, -tangent, tangent, Quaternion.identity));
+        _ActiveSplineContainer.Splines[0].Add(new BezierKnot(localStart, tangentIn, tangentOut, Quaternion.identity));
         if (_ActiveSplineContainer.Splines[0].GetLength() > _maxRoadMagnitude)
             SplitNewRoad(worldPos);
         else
@@ -224,12 +326,34 @@ public class RoadBuilder : MonoBehaviour
         BezierKnot midNode = _ActiveSplineContainer.Splines[0][_ActiveSplineContainer.Splines[0].Count - 2];
         _ActiveSplineContainer.Splines[0].RemoveAt(_ActiveSplineContainer.Splines[0].Count - 1);
         ReArrangeSpline(_ActiveSplineContainer);
+        Vector3 midPos = _ActiveSplineContainer.transform.TransformPoint(midNode.Position);
 
-        ChangeActiveSplineContainer(StartSplineObject(_ActiveSplineContainer.transform.parent, _ActiveSplineContainer.transform.TransformPoint(midNode.Position)));
+        SplineContainer newSpline = StartSplineObject(_ActiveSplineContainer.transform.parent, midPos);
+        SplineContainer oldSpline = _ActiveSplineContainer;
+        ChangeActiveSplineContainer(newSpline);
         worldPos.y = GetTerrainHeightAtPosition(worldPos, 1000f);
+        Vector3 connectionDirection = (worldPos - midPos).normalized;
+        _ActiveSplineContainer.Splines[0].Add(new BezierKnot((Vector3)midNode.Position + connectionDirection * 30f, Vector3.zero, Vector3.zero, Quaternion.identity));
         _ActiveSplineContainer.Splines[0].Add(new BezierKnot(_ActiveSplineContainer.transform.InverseTransformPoint(worldPos), Vector3.zero, Vector3.zero, Quaternion.identity));
+        SetTangentForSplit(oldSpline[0], newSpline[0], (worldPos - midPos).normalized);
         ReArrangeSpline(_ActiveSplineContainer);
     }
+    private void SetTangentForSplit(Spline spline1, Spline spline2, Vector3 newRoadRid)
+    {
+        if (spline1.Count < 2) return;
+
+        Vector3 oldRoadDir = ((Vector3)(spline1[spline1.Count - 1].Position - spline1[spline1.Count - 2].Position)).normalized;
+        Vector3 avgDir = (oldRoadDir + newRoadRid).normalized;
+
+        float tangentLength = 2f;
+        Vector3 tangent = avgDir * tangentLength;
+
+        BezierKnot smoothKnot = spline2[0];
+        smoothKnot.TangentOut.z = tangent.z;
+
+        spline2.SetKnot(0, smoothKnot);
+    }
+
     private void FindOrStartSpline(Vector3 worldPos)
     {
         Transform container = GetContainer(TerrainController._Instance._SelectedConstructionType);
@@ -322,11 +446,16 @@ public class RoadBuilder : MonoBehaviour
     {
         while (containerTransform.Find("Pool").childCount < 40)
         {
-            GameObject newContainerObj = Instantiate(GetRoadPrefab(containerTransform.name), containerTransform.Find("Pool"));
-            newContainerObj.GetComponent<MeshFilter>().mesh = new Mesh();
-            newContainerObj.AddComponent<MeshCollider>();
-            newContainerObj.GetComponent<SplineContainer>().AddSpline(new Spline());
+            InstantiateSplineObject(containerTransform);
         }
+    }
+    public GameObject InstantiateSplineObject(Transform containerTransform, bool isToPool = true)
+    {
+        GameObject newContainerObj = Instantiate(GetRoadPrefab(containerTransform.name), isToPool ? containerTransform.Find("Pool") : containerTransform); ;
+        newContainerObj.GetComponent<MeshFilter>().mesh = new Mesh();
+        newContainerObj.AddComponent<MeshCollider>();
+        newContainerObj.GetComponent<SplineContainer>().AddSpline(new Spline());
+        return newContainerObj;
     }
     public Transform GetContainer(ConstructionType type)
     {
@@ -370,4 +499,13 @@ public class RoadBuilder : MonoBehaviour
                 return null;
         }
     }
+}
+
+[System.Serializable]
+public class RoadSplineData
+{
+    public List<float3> _RoadKnotPositions;
+    public List<quaternion> _RoadKnotRotations;
+    public List<float3> _RoadKnotTangentIn;
+    public List<float3> _RoadKnotTangentOut;
 }

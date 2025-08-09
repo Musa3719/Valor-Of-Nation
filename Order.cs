@@ -1,3 +1,4 @@
+using System.Collections.Generic;
 using UnityEngine;
 
 public abstract class Order
@@ -16,8 +17,8 @@ public class MoveOrder : Order
             {
                 executerObject.transform.Find("PotentialRouteGhost").GetComponent<LineRenderer>().positionCount = 2;
 
-                firstPos += Vector3.up * 5f;
-                secondPos += Vector3.up * 10f;
+                firstPos += Vector3.up * 12f;
+                secondPos += Vector3.up * 12f;
                 executerObject.transform.Find("PotentialRouteGhost").GetComponent<LineRenderer>().SetPosition(0, firstPos.Value);
                 executerObject.transform.Find("PotentialRouteGhost").GetComponent<LineRenderer>().SetPosition(1, secondPos.Value);
             }
@@ -50,11 +51,54 @@ public class MoveOrder : Order
             if (isClearing)
                 executerObject.GetComponent<Unit>()._TargetPositions.Clear();
             executerObject.GetComponent<Unit>()._TargetPositions.Add(_OrderPosition);
+        }
+    }
 
+}
+
+
+public class GetOnTruckOrder : Order
+{
+    public override void ArrangeOrderGhostForPlayer(GameObject executerObject, Vector3? firstPosForMoveOrder = null, Vector3? secondPosForMoveOrder = null, bool isPressingShift = false)
+    {
+
+    }
+
+    public override void ExecuteOrder(GameObject executerObject, bool isClearingForMoveOrder = false)
+    {
+        Truck truck = GameManager._Instance.GetThisTypeOfSquad<Truck>(executerObject);
+        float availableCarry = truck._CarryLimit * truck._Amount - truck._CurrentCarry;
+        foreach (var squad in executerObject.GetComponent<Unit>()._Squads)
+        {
+            availableCarry = truck._CarryLimit * truck._Amount - truck._CurrentCarry;
+            if (squad is Infantry && !(squad as Infantry)._IsUsingTrucks && availableCarry >= squad._Amount)
+            {
+                (squad as Infantry)._IsUsingTrucks = true;
+                truck._CurrentCarry += squad._Amount;
+            }
         }
     }
 }
+public class GetOffTruckOrder : Order
+{
+    public override void ArrangeOrderGhostForPlayer(GameObject executerObject, Vector3? firstPosForMoveOrder = null, Vector3? secondPosForMoveOrder = null, bool isPressingShift = false)
+    {
 
+    }
+
+    public override void ExecuteOrder(GameObject executerObject, bool isClearingForMoveOrder = false)
+    {
+        Truck truck = GameManager._Instance.GetThisTypeOfSquad<Truck>(executerObject);
+        foreach (var squad in executerObject.GetComponent<Unit>()._Squads)
+        {
+            if (squad is Infantry && (squad as Infantry)._IsUsingTrucks)
+            {
+                (squad as Infantry)._IsUsingTrucks = false;
+                truck._CurrentCarry -= squad._Amount;
+            }
+        }
+    }
+}
 public class GetOnShipOrder : Order
 {
     public override void ArrangeOrderGhostForPlayer(GameObject executerObject, Vector3? firstPosForMoveOrder = null, Vector3? secondPosForMoveOrder = null, bool isPressingShift = false)
@@ -64,15 +108,18 @@ public class GetOnShipOrder : Order
 
     public override void ExecuteOrder(GameObject executerObject, bool isClearingForMoveOrder = false)
     {
+        if (executerObject.GetComponent<Unit>()._AttachedToUnitObject != null || executerObject.GetComponent<Unit>()._IsAir || executerObject.GetComponent<Unit>()._IsNaval || executerObject.GetComponent<Unit>()._IsTrain)
+            return;
+
         GameObject nearestShip = GameInputController._Instance.GetNearestShip(executerObject.transform);
         if (nearestShip != null)
         {
-            executerObject.GetComponent<Unit>().AttachedShip = nearestShip;
+            executerObject.GetComponent<Unit>()._AttachedToUnitObject = nearestShip;
             executerObject.GetComponent<Rigidbody>().constraints = RigidbodyConstraints.FreezeAll;
-            executerObject.transform.SetParent(nearestShip.transform);
+            executerObject.transform.SetParent(nearestShip.transform.Find("CarryingUnits"));
             executerObject.transform.position = nearestShip.transform.position;
             executerObject.gameObject.SetActive(false);
-            GameInputController._Instance._SelectedObjects.ClearSelected();
+            GameInputController._Instance._SelectedUnits.ClearSelected();
         }
     }
 }
@@ -85,19 +132,25 @@ public class EvacuateShipOrder : Order
 
     public override void ExecuteOrder(GameObject executerObject, bool isClearingForMoveOrder = false)
     {
-        Vector3 landingPosition = GameInputController._Instance.GetNearestTerrainPosition(executerObject.transform.position);
-        if ((landingPosition - executerObject.transform.position).magnitude > 1000f) return;
-
-        foreach (Transform item in executerObject.transform)
+        if (executerObject.CompareTag("NavalUnit") && executerObject.transform.Find("CarryingUnits").childCount != 0)
         {
-            if (item.CompareTag("LandUnit") && item.GetComponent<Unit>().AttachedShip != null)
+            Transform[] childs = GameManager._Instance.GetNearChildTransforms(executerObject.transform.Find("CarryingUnits"));
+            foreach (Transform carryingUnit in childs)
             {
-                item.GetComponent<Unit>().AttachedShip = null;
-                item.GetComponent<Rigidbody>().constraints = RigidbodyConstraints.FreezeRotation;
-                item.transform.parent = null;
-                item.transform.position = landingPosition;
-                item.gameObject.SetActive(true);
+                Vector3 landingPosition = GameInputController._Instance.GetNearestTerrainPosition(executerObject.transform.position);
+                if ((landingPosition - executerObject.transform.position).magnitude > 1000f) return;
+
+                if (carryingUnit.GetComponent<Unit>()._AttachedToUnitObject != null)
+                {
+                    carryingUnit.GetComponent<Unit>()._AttachedToUnitObject = null;
+                    carryingUnit.GetComponent<Rigidbody>().constraints = RigidbodyConstraints.FreezeRotation;
+                    carryingUnit.transform.parent = null;
+                    carryingUnit.transform.position = landingPosition;
+                    carryingUnit.gameObject.SetActive(true);
+                }
             }
+
+
         }
     }
 
