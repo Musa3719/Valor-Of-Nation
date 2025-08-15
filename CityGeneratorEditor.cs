@@ -1,6 +1,5 @@
 #if UNITY_EDITOR
 using UnityEditor;
-#endif
 using UnityEngine;
 
 [CustomEditor(typeof(CityGenerator))]
@@ -41,3 +40,4 @@ public class ForestGeneratorEditor : Editor
         }
     }
 }
+#endif

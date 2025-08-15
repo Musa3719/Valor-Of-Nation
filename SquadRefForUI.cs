@@ -12,13 +12,13 @@ public class SquadRefForUI : MonoBehaviour
     private void Update()
     {
         _IsMouseOver = RectTransformUtility.RectangleContainsScreenPoint(GetComponent<RectTransform>(), Input.mousePosition, null);
-        if (_IsMouseOver && Mouse.current.leftButton.wasPressedThisFrame)
+        if (_IsMouseOver && !GameInputController._Instance.IsMouseOverAnyButtonOrSliderUI() && Mouse.current.leftButton.wasPressedThisFrame)
             OnClick();
         else if (_IsMouseOver && Mouse.current.rightButton.isPressed && _IsPermittedToRightClickSelect)
             OnRightClick();
     }
 
-    
+
 
     private void OnClick()
     {

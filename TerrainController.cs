@@ -20,7 +20,7 @@ public class TerrainController : MonoBehaviour
     public Material _RoadWhiteGhostMat;
     public Material _RemovalGhostMat;
 
-    private Material _removalGhostOldMat;
+    private Material[] _removalGhostOldMats;
 
     public ConstructionType _SelectedConstructionType { get; private set; }
     public bool _IsRemovalTool { get; private set; }
@@ -104,7 +104,7 @@ public class TerrainController : MonoBehaviour
     private void CheckForConstruction()
     {
         _mouseTerrainPoint = GetTerrainPointFromMouse();
-        //Debug.Log(_mouseTerrainPoint._TerrainUpperType);
+        //Debug.Log(_mouseTerrainPoint._Temperature);
         if (RoadBuilder._Instance._ActiveSplineContainer != null && RoadBuilder._Instance._RoadGhost.activeInHierarchy) RoadBuilder._Instance.UpdateRoadGhost(RoadBuilder._Instance._ActiveSplineContainer.Splines[0][RoadBuilder._Instance._ActiveSplineContainer.Splines[0].Count - 1].Position, _mouseTerrainPoint._Position, _mouseTerrainPoint);
         if (!_IsRemovalTool && _removalToolGhostObject != null) RemovalGhostBackToOriginal();
         if (_IsRemovalTool) { RoadBuilder._Instance._RoadPointGhost.SetActive(false); RoadBuilder._Instance._RoadGhost.SetActive(false); }
@@ -135,17 +135,118 @@ public class TerrainController : MonoBehaviour
             ArrangeConstructionEvent();
         }
     }
+    public float GetTerrainHeightAtPosition(Vector3 pos, float rayDistance)
+    {
+        Ray ray = new Ray(pos + Vector3.up * rayDistance, Vector3.down);
+        if (Physics.Raycast(ray, out RaycastHit hit, rayDistance * 1.5f, LayerMask.GetMask("Terrain")))
+        {
+            if (hit.collider.TryGetComponent<Terrain>(out Terrain terrain))
+            {
+                Vector3 terrainPos = pos - terrain.transform.position;
+
+                float normX = terrainPos.x / terrain.terrainData.size.x;
+                float normZ = terrainPos.z / terrain.terrainData.size.z;
+
+                float height = terrain.SampleHeight(pos);
+                Vector3 terrainNormal = terrain.terrainData.GetInterpolatedNormal(normX, normZ);
+                Vector3 offset = terrainNormal * 5f;
+                offset = offset.y < 0 ? Vector3.zero : offset;
+                return (new Vector3(pos.x, height, pos.z) + offset).y;
+
+                //return hit.point.y;
+            }
+        }
+        return 0f;
+    }
+    public void ArrangeMergingLineRenderer(LineRenderer lineRenderer, Vector3 start, Vector3 end, float yOffset = 0f, float maxSegmentLength = 25f)
+    {
+        if (lineRenderer == null) return;
+
+        List<Vector3> adjustedPositions = new List<Vector3>();
+
+        float dist = Vector3.Distance(start, end);
+
+        adjustedPositions.Add(start);
+        if (dist > maxSegmentLength)
+        {
+            int numSegments = Mathf.FloorToInt(dist / maxSegmentLength);
+            Vector3 dir = (end - start).normalized;
+
+            for (int s = 1; s <= numSegments; s++)
+            {
+                Vector3 newPoint = start + dir * (maxSegmentLength * s);
+                adjustedPositions.Add(newPoint);
+            }
+        }
+        adjustedPositions.Add(end);
+
+        for (int i = 0; i < adjustedPositions.Count; i++)
+        {
+            Physics.Raycast(adjustedPositions[i] + Vector3.up * 200f, -Vector3.up, out RaycastHit hit, 400f, GameManager._Instance._TerrainAndWaterLayers);
+            float height = hit.point.y + 4f;
+            adjustedPositions[i] = new Vector3(adjustedPositions[i].x, height, adjustedPositions[i].z);
+        }
+
+        if (adjustedPositions.Count != lineRenderer.positionCount)
+            lineRenderer.positionCount = adjustedPositions.Count;
+        lineRenderer.SetPositions(adjustedPositions.ToArray());
+    }
+    public void ArrangeMergingLineRenderer(LineRenderer lineRenderer, List<Vector3> points, float maxSegmentLength = 25f)
+    {
+        if (lineRenderer == null || points == null || points.Count < 1) return;
+
+        List<Vector3> adjustedPositions = new List<Vector3>();
+        adjustedPositions.Add(points[0]);
+        for (int i = 0; i < points.Count - 1; i++)
+        {
+            Vector3 start = points[i];
+            Vector3 end = points[i + 1];
+            float dist = Vector3.Distance(start, end);
+
+            if (dist > maxSegmentLength)
+            {
+                int numSegments = Mathf.FloorToInt(dist / maxSegmentLength);
+                Vector3 dir = (end - start).normalized;
+
+                for (int s = 1; s <= numSegments; s++)
+                {
+                    Vector3 newPoint = start + dir * (maxSegmentLength * s);
+                    adjustedPositions.Add(newPoint);
+                }
+            }
+            adjustedPositions.Add(end);
+        }
+
+        for (int i = 0; i < adjustedPositions.Count; i++)
+        {
+            Physics.Raycast(adjustedPositions[i] + Vector3.up * 200f, -Vector3.up, out RaycastHit hit, 400f, GameManager._Instance._TerrainAndWaterLayers);
+            float height = hit.point.y + 4f;
+            adjustedPositions[i] = new Vector3(adjustedPositions[i].x, height, adjustedPositions[i].z);
+        }
+
+        if (adjustedPositions.Count != lineRenderer.positionCount)
+            lineRenderer.positionCount = adjustedPositions.Count;
+
+
+        lineRenderer.SetPositions(adjustedPositions.ToArray());
+    }
     private void ArrangeRemovalToolGhost()
     {
         Physics.Raycast(Camera.main.ScreenPointToRay(Mouse.current.position.ReadValue()), out RaycastHit hit, 30000f, LayerMask.GetMask("UpperTerrain"));
         if (hit.collider != null && (hit.collider.CompareTag("DirtRoad") || hit.collider.CompareTag("AsphaltRoad") || hit.collider.CompareTag("RailRoad") || hit.collider.CompareTag("Bridge")))
         {
             if (_removalToolGhostObject != null)
-                _removalToolGhostObject.GetComponent<MeshRenderer>().material = _removalGhostOldMat;
+                _removalToolGhostObject.GetComponent<MeshRenderer>().materials = _removalGhostOldMats;
             _removalToolGhostObject = hit.collider.gameObject;
 
-            _removalGhostOldMat = _removalToolGhostObject.GetComponent<MeshRenderer>().material;
-            _removalToolGhostObject.GetComponent<MeshRenderer>().material = _RemovalGhostMat;
+            _removalGhostOldMats = _removalToolGhostObject.GetComponent<MeshRenderer>().materials;
+
+            List<Material> removalMatList = new List<Material>();
+            for (int i = 0; i < _removalToolGhostObject.GetComponent<MeshRenderer>().materials.Length; i++)
+            {
+                removalMatList.Add(_RemovalGhostMat);
+            }
+            _removalToolGhostObject.GetComponent<MeshRenderer>().SetMaterials(removalMatList);
         }
         else
         {
@@ -155,7 +256,7 @@ public class TerrainController : MonoBehaviour
     }
     private void RemovalGhostBackToOriginal()
     {
-        _removalToolGhostObject.GetComponent<MeshRenderer>().material = _removalGhostOldMat;
+        _removalToolGhostObject.GetComponent<MeshRenderer>().materials = _removalGhostOldMats;
         _removalToolGhostObject = null;
     }
 
@@ -170,16 +271,28 @@ public class TerrainController : MonoBehaviour
         {
             if (containerObject.name == "Pool") continue;
             Spline spline = containerObject.GetComponent<SplineContainer>().Splines[0];
+            if (spline.Count < 2) continue;
             for (int i = 0; i < spline.Count; i++)
             {
                 Vector3 knotWorldPos = containerTransform.transform.TransformPoint(spline[i].Position);
                 if (Vector3.Distance(new Vector3(worldPosOld.x, 0f, worldPosOld.z), new Vector3(knotWorldPos.x, 0f, knotWorldPos.z)) <= snapDistance)
                 {
-                    worldPos = knotWorldPos;
-                    snapDistance = Vector3.Distance(new Vector3(worldPosOld.x, 0f, worldPosOld.z), new Vector3(knotWorldPos.x, 0f, knotWorldPos.z));
-                    isSnapped = true;
-                    RoadBuilder._Instance._RoadPointGhost.SetActive(true);
-                    RoadBuilder._Instance._RoadPointGhost.transform.position = worldPos;
+                    float angle = 0f;
+                    if (RoadBuilder._Instance._ActiveSplineContainer != null)
+                    {
+                        Vector3 newRoadDir = (knotWorldPos - RoadBuilder._Instance._ActiveSplineContainer.transform.TransformPoint(RoadBuilder._Instance._ActiveSplineContainer[0][RoadBuilder._Instance._ActiveSplineContainer[0].Count - 1].Position)).normalized;
+                        Vector3 oldRoadDir = ((Vector3)(i == 0 ? spline[1].Position : spline[spline.Count - 2].Position) - knotWorldPos).normalized;
+                        angle = Vector2.Angle(new Vector2(newRoadDir.x, newRoadDir.z), new Vector2(oldRoadDir.x, oldRoadDir.z));
+                    }
+                    if (angle <= 140f)
+                    {
+                        worldPos = knotWorldPos;
+                        snapDistance = Vector3.Distance(new Vector3(worldPosOld.x, 0f, worldPosOld.z), new Vector3(knotWorldPos.x, 0f, knotWorldPos.z));
+                        isSnapped = true;
+                        RoadBuilder._Instance._RoadPointGhost.SetActive(true);
+                        RoadBuilder._Instance._RoadPointGhost.transform.position = worldPos;
+                    }
+
                 }
             }
         }
@@ -551,22 +664,24 @@ public class TerrainController : MonoBehaviour
     private float GetTemperature(RaycastHit hit)
     {
         float baseTemp = 25f;
-        float locationEffect = -hit.point.z * 0.0022f + hit.point.x * 0.0008f;
+        float locationEffect = -hit.point.z * 0.0009f + hit.point.x * 0.0004f;
 
-        float excess = 0;
-        if (hit.point.y > 750f)
-            excess = hit.point.y - 750f;
-
-        if (locationEffect < 0)
-            locationEffect *= 1.5f;
-        else
-            excess = Mathf.Clamp(excess - locationEffect * 18f, 0, 1000f);
-
-        float heightEffect = -(hit.point.y - 360f) * 0.035f - excess / 10f;
+        float heightEffect = -(Mathf.Clamp(hit.point.y - 300f, 0f, 5000f) * 0.0225f);
 
         var weather = GameObject.FindAnyObjectByType<Gaia.ProceduralWorldsGlobalWeather>();
-        float weatherOffset = weather.IsRaining ? -4f : (weather.IsSnowing ? -9f : 0f);
-        return baseTemp + heightEffect + locationEffect + weatherOffset;
+        float weatherOffset = weather.IsRaining ? -3f : (weather.IsSnowing ? -7f : 0f);
+        float seasonOffset = GetSeasonTemperatureOffset(weather.Season);
+
+        return baseTemp + locationEffect + heightEffect + weatherOffset + seasonOffset;
+    }
+    private float GetSeasonTemperatureOffset(float seasonValue)//0-1 winter, 1-2 spring, 2-3 summer, 3-4 autumn
+    {
+        float amplitude = 20f;
+
+        float angle = seasonValue * Mathf.PI / 2f + 0.7825f;
+        float dist = Mathf.Min(Mathf.Abs(seasonValue - 0.5f), Mathf.Abs(seasonValue - 2.5f));
+        float temperatureOffset = Mathf.Sin(angle) * (3f - dist) / 3f * amplitude;
+        return -temperatureOffset;
     }
 
     private TerrainLowerType GetDominantTextureType(float[] textureWeights, out float baseSupplyMultiplier)
@@ -642,22 +757,22 @@ public class TerrainController : MonoBehaviour
                     break;
                 }
                 _removalToolGhostObject = null;
-                _removalGhostOldMat = null;
+                _removalGhostOldMats = null;
                 Destroy(terrainPoint._UpperTypeObject);
                 break;
             case TerrainUpperType.DirtRoad:
                 _removalToolGhostObject = null;
-                _removalGhostOldMat = null;
+                _removalGhostOldMats = null;
                 Destroy(terrainPoint._UpperTypeObject);
                 break;
             case TerrainUpperType.AsphaltRoad:
                 _removalToolGhostObject = null;
-                _removalGhostOldMat = null;
+                _removalGhostOldMats = null;
                 Destroy(terrainPoint._UpperTypeObject);
                 break;
             case TerrainUpperType.RailRoad:
                 _removalToolGhostObject = null;
-                _removalGhostOldMat = null;
+                _removalGhostOldMats = null;
                 Destroy(terrainPoint._UpperTypeObject);
                 break;
             default:
@@ -671,7 +786,7 @@ public class TerrainController : MonoBehaviour
 
         Vector3 tempPos;
         RaycastHit hit;
-        Vector3 startPos = GhostObject.GetComponent<LineRenderer>().GetPosition(GhostObject.GetComponent<LineRenderer>().positionCount - 2);
+        Vector3 startPos = GhostObject.GetComponent<LineRenderer>().GetPosition(0);
         Vector3 endPos = GhostObject.GetComponent<LineRenderer>().GetPosition(GhostObject.GetComponent<LineRenderer>().positionCount - 1);
         float lerpValue = 0f;
 

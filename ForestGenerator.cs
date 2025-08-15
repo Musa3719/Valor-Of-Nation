@@ -1,7 +1,6 @@
-using UnityEngine;
 #if UNITY_EDITOR
+using UnityEngine;
 using UnityEditor;
-#endif
 using System.Collections.Generic;
 
 public class ForestGenerator : MonoBehaviour
@@ -313,3 +312,4 @@ public class Triangulator
         return (aCrossBP >= 0f) && (bCrossCP >= 0f) && (cCrossAP >= 0f);
     }
 }
+#endif

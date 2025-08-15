@@ -1,7 +1,6 @@
-using System.Collections.Generic;
 #if UNITY_EDITOR
+using System.Collections.Generic;
 using UnityEditor;
-#endif
 using UnityEngine;
 using UnityEngine.InputSystem;
 
@@ -136,3 +135,4 @@ public class CityGenerator : MonoBehaviour
     }
 
 }
+#endif

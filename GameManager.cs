@@ -18,12 +18,18 @@ public class GameManager : MonoBehaviour
     public InputActionAsset _InputActions;
     public LayerMask _TerrainAndWaterLayers;
     public LayerMask _TerrainWaterAndUpperLayers;
+    public Gradient _SelectedGradientForCurrentRoute;
+    public Gradient _NotSelectedGradientForCurrentRoute;
     public GameObject _LandUnitPrefab;
     public GameObject _NavalUnitPrefab;
     public GameObject _UnitUIPrefab;
     public GameObject _SquadUIPrefab;
     public Sprite _InfantryAttachedToTrucksIcon;
+    public Sprite _ArtilleryTowedIcon;
+    public Sprite _AntiTankTowedIcon;
+    public Sprite _AntiAirTowedIcon;
     public List<Sprite> _UnitTypeIcons;
+    public List<GameObject> _UnitModelPrefabs;
 
     public static GameManager _Instance;
 
@@ -36,6 +42,7 @@ public class GameManager : MonoBehaviour
     public GameObject _ConstructionScreen { get; private set; }
     public GameObject _LoadingScreen { get; private set; }
 
+    public int _GameSpeed { get => (int)transform.localEulerAngles.x; private set => transform.localEulerAngles = new Vector3(value, 0f, 0f); }
     public bool _IsGameStopped { get; private set; }
     public bool _IsGameLoading { get; set; }
     public int _LevelIndex { get; private set; }
@@ -53,6 +60,7 @@ public class GameManager : MonoBehaviour
     private void Awake()
     {
         _Instance = this;
+        _GameSpeed = 1;
         _MainCamera = Camera.main.gameObject;
         //Application.targetFrameRate = 30;
         _OptionsScreen = GameObject.FindGameObjectWithTag("UI").transform.Find("Options").gameObject;
@@ -89,12 +97,13 @@ public class GameManager : MonoBehaviour
         {
             Infantry inf = new Infantry(GameInputController._Instance._SelectedUnits[0].GetComponent<Unit>());
             inf._Amount = (int)Time.time;
-            GameInputController._Instance._SelectedUnits[0].GetComponent<Unit>()._Squads.Add(inf);
+            GameInputController._Instance._SelectedUnits[0].GetComponent<Unit>().AddSquad(inf);
             //new GetOnShipOrder().ExecuteOrder(GameInputController._Instance._SelectedUnits[0]);
         }
         if (Input.GetKeyDown(KeyCode.Y))
         {
-            GameInputController._Instance._SelectedUnits[0].GetComponent<Unit>()._Squads.RemoveAt(0);
+            GameInputController._Instance.DeSelectSquad(GameInputController._Instance._SelectedUnits[0].GetComponent<Unit>()._Squads[0]);
+            GameInputController._Instance._SelectedUnits[0].GetComponent<Unit>().RemoveSquad(GameInputController._Instance._SelectedUnits[0].GetComponent<Unit>()._Squads[0]);
             //new GetOnTruckOrder().ExecuteOrder(GameInputController._Instance._SelectedObjects[0]);
             //new EvacuateShipOrder().ExecuteOrder(GameInputController._Instance._SelectedUnits[0]);
 
@@ -167,9 +176,9 @@ public class GameManager : MonoBehaviour
             _MapState.LateUpdate();
     }
 
-    public GameObject CreateLandUnit(Vector3 position, bool isEnemy = false, List<Squad> squads = null)
+    public GameObject CreateUnit(Vector3 position, bool isNaval, bool isEnemy = false, List<Squad> squads = null)
     {
-        GameObject newUnit = Instantiate(_LandUnitPrefab, position, Quaternion.identity);
+        GameObject newUnit = Instantiate(isNaval ? _NavalUnitPrefab : _LandUnitPrefab, position, Quaternion.identity);
         Unit unitComponent = newUnit.GetComponent<Unit>();
         unitComponent._IsEnemy = isEnemy;
 
@@ -226,17 +235,19 @@ public class GameManager : MonoBehaviour
             GameInputController._Instance._ArmyUIContent.transform.parent.parent.parent.Find("OrderUI").Find("MoveOrderButton").GetComponent<Button>().onClick.AddListener(SoundManager._Instance.PlayButtonSound);
             GameInputController._Instance._ArmyUIContent.transform.parent.parent.parent.Find("OrderUI").Find("MoveOrderButton").GetComponent<Button>().onClick.AddListener(() => GameInputController._Instance._CurrentPlayerOrder = new MoveOrder());
             GameInputController._Instance._ArmyUIContent.transform.parent.parent.parent.Find("OrderUI").Find("StopOrderButton").GetComponent<Button>().onClick.AddListener(SoundManager._Instance.PlayButtonSound);
-            GameInputController._Instance._ArmyUIContent.transform.parent.parent.parent.Find("OrderUI").Find("StopOrderButton").GetComponent<Button>().onClick.AddListener(() => GameInputController._Instance.ActivateStopOrder());
-            GameInputController._Instance._ArmyUIContent.transform.parent.parent.parent.Find("OrderUI").Find("SelectThisTypeButton").GetComponent<Button>().onClick.AddListener(SoundManager._Instance.PlayButtonSound);
-            GameInputController._Instance._ArmyUIContent.transform.parent.parent.parent.Find("OrderUI").Find("SelectThisTypeButton").GetComponent<Button>().onClick.AddListener(() => GameInputController._Instance.SelectThisTypeButtonClicked());
+            GameInputController._Instance._ArmyUIContent.transform.parent.parent.parent.Find("OrderUI").Find("StopOrderButton").GetComponent<Button>().onClick.AddListener(() => GameInputController._Instance.StopOrderButtonClicked());
             GameInputController._Instance._ArmyUIContent.transform.parent.parent.parent.Find("OrderUI").Find("SelectAllButton").GetComponent<Button>().onClick.AddListener(SoundManager._Instance.PlayButtonSound);
             GameInputController._Instance._ArmyUIContent.transform.parent.parent.parent.Find("OrderUI").Find("SelectAllButton").GetComponent<Button>().onClick.AddListener(() => GameInputController._Instance.SelectAllSquadsButtonClicked());
+            GameInputController._Instance._ArmyUIContent.transform.parent.parent.parent.Find("OrderUI").Find("OrderTypeButton").GetComponent<Button>().onClick.AddListener(SoundManager._Instance.PlayButtonSound);
+            GameInputController._Instance._ArmyUIContent.transform.parent.parent.parent.Find("OrderUI").Find("OrderTypeButton").GetComponent<Button>().onClick.AddListener(() => GameInputController._Instance.OrderTypeButtonClicked());
             GameInputController._Instance._ArmyUIContent.transform.parent.parent.parent.Find("OrderUI").Find("ToNewUnitButton").GetComponent<Button>().onClick.AddListener(SoundManager._Instance.PlayButtonSound);
             GameInputController._Instance._ArmyUIContent.transform.parent.parent.parent.Find("OrderUI").Find("ToNewUnitButton").GetComponent<Button>().onClick.AddListener(() => GameInputController._Instance.ToNewUnitButtonClicked());
             GameInputController._Instance._ArmyUIContent.transform.parent.parent.parent.Find("OrderUI").Find("SplitUnitButton").GetComponent<Button>().onClick.AddListener(SoundManager._Instance.PlayButtonSound);
             GameInputController._Instance._ArmyUIContent.transform.parent.parent.parent.Find("OrderUI").Find("SplitUnitButton").GetComponent<Button>().onClick.AddListener(() => GameInputController._Instance.SplitUnitButtonClicked());
-            GameInputController._Instance._ArmyUIContent.transform.parent.parent.parent.Find("OrderUI").Find("ToNewSquadButton").GetComponent<Button>().onClick.AddListener(SoundManager._Instance.PlayButtonSound);
-            GameInputController._Instance._ArmyUIContent.transform.parent.parent.parent.Find("OrderUI").Find("ToNewSquadButton").GetComponent<Button>().onClick.AddListener(() => GameInputController._Instance.ToNewSquadButtonClicked());
+            GameInputController._Instance._ArmyUIContent.transform.parent.parent.parent.Find("OrderUI").Find("GetOnTruckButton").GetComponent<Button>().onClick.AddListener(SoundManager._Instance.PlayButtonSound);
+            GameInputController._Instance._ArmyUIContent.transform.parent.parent.parent.Find("OrderUI").Find("GetOnTruckButton").GetComponent<Button>().onClick.AddListener(() => GameInputController._Instance.GetOnTruckButtonClicked());
+            GameInputController._Instance._ArmyUIContent.transform.parent.parent.parent.Find("OrderUI").Find("GetOffTruckButton").GetComponent<Button>().onClick.AddListener(SoundManager._Instance.PlayButtonSound);
+            GameInputController._Instance._ArmyUIContent.transform.parent.parent.parent.Find("OrderUI").Find("GetOffTruckButton").GetComponent<Button>().onClick.AddListener(() => GameInputController._Instance.GetOffTruckButtonClicked());
 
             GameObject.FindGameObjectWithTag("UI").transform.Find("InGameScreen").Find("ConstructionScreen").Find("Remove").GetComponent<Button>().onClick.AddListener(SoundManager._Instance.PlayButtonSound);
             GameObject.FindGameObjectWithTag("UI").transform.Find("InGameScreen").Find("ConstructionScreen").Find("Remove").GetComponent<Button>().onClick.AddListener(() => TerrainController._Instance.ConstructionButtonClicked(0));
@@ -278,32 +289,66 @@ public class GameManager : MonoBehaviour
                 return _UnitTypeIcons[5];
             case RocketArtillery t:
                 return _UnitTypeIcons[6];
-            case Mortar t:
-                return _UnitTypeIcons[7];
-            case MachineGun t:
-                return _UnitTypeIcons[8];
             case AntiTank t:
-                return _UnitTypeIcons[9];
+                return _UnitTypeIcons[7];
             case AntiAir t:
-                return _UnitTypeIcons[10];
-            case PropellerPlane t:
-                return _UnitTypeIcons[11];
-            case JetPlane t:
-                return _UnitTypeIcons[12];
+                return _UnitTypeIcons[8];
+            case Jet t:
+                return _UnitTypeIcons[9];
             case Helicopter t:
-                return _UnitTypeIcons[13];
+                return _UnitTypeIcons[10];
             case CargoPlane t:
-                return _UnitTypeIcons[14];
+                return _UnitTypeIcons[11];
             case Cruiser t:
-                return _UnitTypeIcons[15];
+                return _UnitTypeIcons[12];
             case Destroyer t:
-                return _UnitTypeIcons[16];
+                return _UnitTypeIcons[13];
             case Corvette t:
-                return _UnitTypeIcons[17];
-            case Submarine t:
-                return _UnitTypeIcons[18];
+                return _UnitTypeIcons[14];
+            case TransportShip t:
+                return _UnitTypeIcons[15];
             default:
                 return _UnitTypeIcons[0];
+        }
+    }
+    public GameObject GetUnitModelPrefabFromSquad(Squad squad)
+    {
+        switch (squad)
+        {
+            case Infantry t:
+                return _UnitModelPrefabs[0];
+            case Truck t:
+                return _UnitModelPrefabs[1];
+            case Train t:
+                return _UnitModelPrefabs[2];
+            case Tank t:
+                return _UnitModelPrefabs[3];
+            case APC t:
+                return _UnitModelPrefabs[4];
+            case Artillery t:
+                return _UnitModelPrefabs[5];
+            case RocketArtillery t:
+                return _UnitModelPrefabs[6];
+            case AntiTank t:
+                return _UnitModelPrefabs[7];
+            case AntiAir t:
+                return _UnitModelPrefabs[8];
+            case Jet t:
+                return _UnitModelPrefabs[9];
+            case Helicopter t:
+                return _UnitModelPrefabs[10];
+            case CargoPlane t:
+                return _UnitModelPrefabs[11];
+            case Cruiser t:
+                return _UnitModelPrefabs[12];
+            case Destroyer t:
+                return _UnitModelPrefabs[13];
+            case Corvette t:
+                return _UnitModelPrefabs[14];
+            case TransportShip t:
+                return _UnitModelPrefabs[15];
+            default:
+                return _UnitModelPrefabs[0];
         }
     }
     #region CommonMethods
@@ -531,7 +576,7 @@ public class GameManager : MonoBehaviour
     {
         if (isOpening)
             GameInputController._Instance.CloseAllInGameOtherUI();
-        ; _ConstructionScreen.SetActive(isOpening);
+        _ConstructionScreen.SetActive(isOpening);
     }
 
     public void Slowtime(float time)

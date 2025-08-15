@@ -4,12 +4,17 @@ using UnityEngine;
 
 public class Unit : MonoBehaviour
 {
+    public string _Name;
     public int _UnitIndex;
     public bool _IsEnemy;
 
     public Storage _Storage;
     public List<Squad> _Squads;
 
+    public ICarryUnit _CarryUnitSquad => _Squads.FirstOrDefault(s => s is ICarryUnit) as ICarryUnit;
+    public bool _CanCarryAnotherUnit => _Squads.Any(s => s is ICarryUnit);
+    public bool _CanGetOnAnotherUnit => _Squads.All(s => s is ICarriableUnit);
+    public int _CarryWeight => _Squads.Sum(s => s._Weight);
     public bool _IsCivilian => _Squads.All(s => s._IsCivilian);
     public bool _IsNaval => gameObject.CompareTag("NavalUnit");
     public bool _IsTrain => _Squads.All(s => s is ITrain);
@@ -22,6 +27,10 @@ public class Unit : MonoBehaviour
 
     public bool _IsAttacking { get; set; }// attack type, attack position or transform, other attacking orders and save
 
+
+    private List<Vector3> _currentRoutePoints;
+    private float _updateModelsCounter;
+
     private void Awake()
     {
         _UnitIndex = GameManager._Instance._LastCreatedUnitIndex++;
@@ -31,41 +40,64 @@ public class Unit : MonoBehaviour
         _Squads = new List<Squad>();
         _Storage = new Storage();
 
+        _currentRoutePoints = new List<Vector3>();
+
         //testing
-        if (Time.realtimeSinceStartup < 1f)
+        if (Time.frameCount == 0)
         {
+            Squad newSquad;
             if (_IsNaval)
             {
-                _Squads.Add(new Cruiser(this));
-                _Squads[0]._Amount = 1;
-                _Squads.Add(new Submarine(this));
-                _Squads[1]._Amount = 2;
+                newSquad = new Cruiser(this);
+                newSquad._Amount = 1;
+                AddSquad(newSquad);
+                newSquad = new Destroyer(this);
+                newSquad._Amount = 3;
+                AddSquad(newSquad);
+                newSquad = new TransportShip(this);
+                newSquad._Amount = 5;
+                AddSquad(newSquad);
             }
             else
             {
-                _Squads.Add(new Infantry(this));
-                _Squads[0]._Amount = 100;
-                _Squads.Add(new Tank(this));
-                _Squads[1]._Amount = 20;
-                _Squads.Add(new Infantry(this));
-                _Squads[2]._Amount = 250;
-                _Squads.Add(new Truck(this));
-                _Squads[3]._Amount = 50;
+                newSquad = new Infantry(this);
+                newSquad._Amount = 100;
+                AddSquad(newSquad);
+                newSquad = new Tank(this);
+                newSquad._Amount = 20;
+                AddSquad(newSquad);
+                newSquad = new Infantry(this);
+                newSquad._Amount = 250;
+                AddSquad(newSquad);
+                newSquad = new Truck(this);
+                newSquad._Amount = 50;
+                AddSquad(newSquad);
             }
         }
-       
 
+    }
+    private void Start()
+    {
+        int i = 0;
+        _updateModelsCounter = 1;
+        while (_updateModelsCounter > 0.4f && i < 3)
+        {
+            i++;
+            ArrangeModels();
+        }
     }
 
     private void Update()
     {
         if (GameManager._Instance._IsGameStopped) return;
 
-        if (_Squads.Count == 0)
+        ArrangeCurrentRouteGhost();
+
+        if (_Squads.Count == 0 || _CarryWeight == 0)
         {
-            if (GameInputController._Instance._SelectedUnits.Contains(gameObject))
-                GameInputController._Instance.RemoveSelectedUnit(gameObject);
+            GameInputController._Instance.DeSelectUnit(gameObject);
             Destroy(gameObject);
+            return;
         }
         foreach (Squad squad in _Squads)
         {
@@ -74,7 +106,7 @@ public class Unit : MonoBehaviour
                 GameInputController._Instance.DeSelectSquad(squad);
 
                 squad._AttachedUnit = null;
-                _Squads.Remove(squad);
+                RemoveSquad(squad);
             }
         }
 
@@ -92,6 +124,196 @@ public class Unit : MonoBehaviour
         {
             MoveToPosition(transform.position);
         }
+
+        int i = 0;
+        _updateModelsCounter += Time.deltaTime;
+        while (_updateModelsCounter > 0.4f && i < 3)
+        {
+            i++;
+            ArrangeModels();
+        }
+    }
+    private void ArrangeModels()
+    {
+        _updateModelsCounter = 0f;
+        GameObject squadPrefab;
+        bool isModelExist;
+        Vector3[] points = GetPointsInCircle(_Squads.Count, 4f);
+
+        List<Transform> existingModels = new List<Transform>();
+        for (int t = 0; t < transform.Find("Models").childCount; t++)
+        {
+            existingModels.Add(transform.Find("Models").GetChild(t));
+        }
+
+        Physics.Raycast(transform.position + Vector3.up * 100f, -Vector3.up, out RaycastHit hit, 200f, GameManager._Instance._TerrainAndWaterLayers);
+
+        for (int i = 0; i < _Squads.Count; i++)
+        {
+            Squad squad = _Squads[i];
+            squadPrefab = GameManager._Instance.GetUnitModelPrefabFromSquad(squad);
+            isModelExist = false;
+
+            foreach (Transform model in existingModels)
+            {
+                if (model.name.StartsWith(squadPrefab.name))
+                {
+                    float yOffset = model.transform.position.y - model.GetComponent<UnitModel>()._BottomTransform.position.y;
+                    float terrainHeight = hit.point.y;
+
+                    if (model.position.y != terrainHeight + yOffset)
+                        model.position = new Vector3(model.position.x, terrainHeight + yOffset, model.position.z);
+                    isModelExist = true;
+                }
+            }
+
+            if (!isModelExist)
+            {
+                int digitCount = 0;
+                int tempForDigit = squad._Amount;
+                while (tempForDigit > 0)
+                {
+                    tempForDigit /= 10;
+                    digitCount++;
+                }
+
+                GameObject newObj = Instantiate(GameManager._Instance.GetUnitModelPrefabFromSquad(squad), transform.Find("Models"));
+                newObj.GetComponent<UnitModel>()._SquadType = squad.GetType();
+                float colorValue = 0.25f + digitCount * 0.15f;
+                ArrangeModelMaterials(newObj, new Color(colorValue, colorValue, colorValue));
+
+                float yOffset = newObj.transform.position.y - newObj.GetComponent<UnitModel>()._BottomTransform.position.y;
+                float terrainHeight = hit.point.y;
+
+                float scale = 2f - digitCount * 0.25f;
+                scale /= 2f;
+                newObj.transform.localScale = scale * Vector3.one;
+                newObj.transform.position = new Vector3((transform.position + points[i]).x, terrainHeight + yOffset, (transform.position + points[i]).z);
+
+                _updateModelsCounter = 1f;
+            }
+
+        }
+
+        bool isDestroyed = false;
+        for (int i = 0; i < existingModels.Count; i++)
+        {
+            bool hasType = false;
+            foreach (Squad squad in _Squads)
+            {
+                if (existingModels[i].GetComponent<UnitModel>()._SquadType == squad.GetType())
+                    hasType = true;
+            }
+
+            if (!hasType)
+            {
+                Destroy(existingModels[i].gameObject);
+                isDestroyed = true;
+            }
+        }
+        if (isDestroyed)
+            SetModelPositions(points, hit.point.y);
+    }
+    private void SetModelPositions(Vector3[] points, float rayYPoint)
+    {
+        Debug.Log(points.Length);
+        Debug.Log(transform.Find("Models").childCount);
+        for (int i = 0; i < transform.Find("Models").childCount; i++)
+        {
+            Transform model = transform.Find("Models").GetChild(i);
+            float yOffset = model.position.y - model.GetComponent<UnitModel>()._BottomTransform.position.y;
+            model.position = new Vector3((transform.position + points[i]).x, rayYPoint + yOffset, (transform.position + points[i]).z);
+        }
+    }
+    private void ArrangeModelMaterials(GameObject newObj, Color tint)
+    {
+        var renderers = newObj.GetComponentsInChildren<Renderer>();
+        var block = new MaterialPropertyBlock();
+
+        foreach (var rend in renderers)
+        {
+            rend.GetPropertyBlock(block);
+            block.SetColor("_BaseColor", tint);
+            rend.SetPropertyBlock(block);
+        }
+    }
+    private Vector3[] GetPointsInCircle(int pointCount, float radius)
+    {
+        Vector3[] points = new Vector3[pointCount];
+
+        if (pointCount <= 0)
+            return points;
+
+        if (pointCount == 1)
+        {
+            points[0] = Vector3.zero;
+            return points;
+        }
+
+        // 2 ve üzeri -> eþit açý aralýklarýyla yerleþtirme
+        float angleStep = 360f / pointCount;
+
+        for (int i = 0; i < pointCount; i++)
+        {
+            float angle = angleStep * i * Mathf.Deg2Rad;
+            float x = Mathf.Cos(angle) * radius;
+            float z = Mathf.Sin(angle) * radius;
+
+            points[i] = new Vector3(x, 0, z);
+        }
+
+        return points;
+    }
+
+    public void AddSquad(Squad squad)
+    {
+        foreach (var oldSquad in _Squads)
+        {
+            if (oldSquad.GetType() == squad.GetType())
+            {
+                oldSquad.AddValues(squad);
+                return;
+            }
+        }
+        _Squads.Add(squad);
+    }
+    public void RemoveSquad(Squad squad)
+    {
+        if (_Squads.Contains(squad))
+            _Squads.Remove(squad);
+    }
+    public void MergeWithAnotherUnit(Unit anotherUnit)
+    {
+        if (_IsEnemy != anotherUnit._IsEnemy) return;
+
+        foreach (Squad anotherSquad in anotherUnit._Squads)
+        {
+            AddSquad(anotherSquad);
+        }
+        AddStorage(anotherUnit._Storage);
+        Destroy(anotherUnit.gameObject);
+    }
+    public Storage SplitStorage(float percent)
+    {
+        Storage newStorage = new Storage();
+        foreach (var good in _Storage._StoredGoods)
+        {
+            Goods newGood = new Goods();
+            newGood._Type = good._Type;
+            int amount = (int)(good._Amount * percent);
+            newGood._Amount = amount;
+            good._Amount -= amount;
+            if (amount > 0)
+                newStorage.GainGoods(good);
+        }
+        return newStorage;
+    }
+    public void AddStorage(Storage newStorage)
+    {
+        foreach (var good in newStorage._StoredGoods)
+        {
+            _Storage.GainGoods(good);
+        }
     }
     private float GetLowestSquadSpeed()
     {
@@ -104,6 +326,28 @@ public class Unit : MonoBehaviour
         return lowest;
     }
 
+    public int GetCarryingCapacity()
+    {
+        foreach (Squad squad in _Squads)
+        {
+            if (squad is ICarryUnit)
+            {
+                return (squad as ICarryUnit)._CarryLimit * squad._Amount;
+            }
+        }
+        return 0;
+    }
+    public int GetCurrentCarry()
+    {
+        foreach (Squad squad in _Squads)
+        {
+            if (squad is ICarryUnit)
+            {
+                return (squad as ICarryUnit)._CurrentCarry;
+            }
+        }
+        return 0;
+    }
     public int GetTotalInfantryAmount()
     {
         return GetTotalAmountCommon(true);
@@ -173,20 +417,24 @@ public class Unit : MonoBehaviour
 
     public void ArrangeCurrentRouteGhost()
     {
+        if (_IsEnemy) return;
+
         if (_TargetPositions.Count == 0)
         {
             transform.Find("CurrentRouteGhost").gameObject.SetActive(false);
             return;
         }
 
-        transform.Find("CurrentRouteGhost").gameObject.SetActive(true);
-        transform.Find("CurrentRouteGhost").GetComponent<LineRenderer>().positionCount = _TargetPositions.Count + 1;
+        if (!transform.Find("CurrentRouteGhost").gameObject.activeSelf)
+            transform.Find("CurrentRouteGhost").gameObject.SetActive(true);
 
-        transform.Find("CurrentRouteGhost").GetComponent<LineRenderer>().SetPosition(0, transform.position + Vector3.up * 12f);
+        _currentRoutePoints.Clear();
+        _currentRoutePoints.Add(transform.position);
         for (int i = 0; i < _TargetPositions.Count; i++)
         {
-            transform.Find("CurrentRouteGhost").GetComponent<LineRenderer>().SetPosition(i + 1, _TargetPositions[i] + Vector3.up * 12f);
+            _currentRoutePoints.Add(_TargetPositions[i]);
         }
+        TerrainController._Instance.ArrangeMergingLineRenderer(transform.Find("CurrentRouteGhost").GetComponent<LineRenderer>(), _currentRoutePoints);
     }
 
     private void MoveToPosition(Vector3 pos)
@@ -196,7 +444,7 @@ public class Unit : MonoBehaviour
         TerrainPoint point = TerrainController._Instance.GetTerrainPointFromObject(transform);
         Vector3 targetVel = Vector3.Lerp(_Rigidbody.linearVelocity, direction * GetUnitSpeed(point), Time.deltaTime * 15f);
         _Rigidbody.linearVelocity = new Vector3(targetVel.x, 0f, targetVel.z);
-        float yPosition = point._BridgeHitPosition != Vector3.zero ? point._BridgeHitPosition.y + 10f : (point._RoadHitPosition != Vector3.zero ? point._RoadHitPosition.y + 3f : point._Position.y + 10f);
+        float yPosition = point._BridgeHitPosition != Vector3.zero ? point._BridgeHitPosition.y + 10f : (point._RoadHitPosition != Vector3.zero ? point._RoadHitPosition.y + 3f : point._Position.y + 12f);
         _Rigidbody.position = new Vector3(_Rigidbody.position.x, yPosition, _Rigidbody.position.z);
         if (_Rigidbody.linearVelocity.sqrMagnitude > 0.001f)
         {
@@ -232,6 +480,7 @@ public class Unit : MonoBehaviour
             _Squads = _Squads,
             _IsNaval = _IsNaval,
             _Position = transform.localPosition,
+            _Name = _Name,
             _UnitIndex = _UnitIndex,
             _AttachedToUnitObjectIndex = _AttachedToUnitObject == null ? -1 : _AttachedToUnitObject.GetComponent<Unit>()._UnitIndex
         };
@@ -242,6 +491,7 @@ public class Unit : MonoBehaviour
         _Squads = data._Squads;
         _IsEnemy = data._IsEnemy;
         _UnitIndex = data._UnitIndex;
+        _Name = data._Name;
         transform.localPosition = data._Position;
     }
     public void LoadAttachedUnitsFromData(UnitData data)
@@ -273,6 +523,7 @@ public class Unit : MonoBehaviour
 [System.Serializable]
 public class UnitData
 {
+    public string _Name;
     public int _UnitIndex;
 
     [SerializeReference]
@@ -293,7 +544,12 @@ public interface ISquadInterfaces
 {
 
 }
-public interface ICarriableByTrain : ISquadInterfaces
+public interface ICarryUnit : ISquadInterfaces
+{
+    public int _CarryLimit { get; set; }
+    public int _CurrentCarry { get; set; }
+}
+public interface ICarriableUnit : ISquadInterfaces
 {
 
 }
@@ -335,6 +591,7 @@ public abstract class Squad
     public float _Speed = 10f;
     public bool _IsCivilian;
 
+    public abstract int _Weight { get; }
     public int _Amount;
     public float _Morale;
     public bool _IsSquadSelected;
@@ -346,32 +603,41 @@ public abstract class Squad
     }
 
     public abstract Squad CreateNewSquadObject(Unit attachedUnit);
+    public abstract void AddValues(Squad squadValuesToAdd);
 }
-public class Infantry : Squad, ICarriableByTrain
+public class Infantry : Squad, ICarriableUnit
 {
     public override string _DisplayName => Localization._Instance._UI[24];
     public override Sprite _Icon => GameManager._Instance._UnitTypeIcons[0];
+    public override int _Weight => _Amount;
 
-    public bool _IsUsingTrucks;
-
-    public Infantry(Unit unit):base(unit)
+    public Truck _AttachedTruck;
+    public Infantry(Unit unit) : base(unit)
     {
-        
+
     }
 
     public override Squad CreateNewSquadObject(Unit attachedUnit)
     {
         return new Infantry(attachedUnit);
     }
+
+    public override void AddValues(Squad squadValuesToAdd)
+    {
+        Infantry inf = squadValuesToAdd as Infantry;
+        _Amount += squadValuesToAdd._Amount;
+    }
 }
-public class Truck : Squad, IWheel, ICarriableByTrain
+public class Truck : Squad, IWheel, ICarriableUnit
 {
     public override string _DisplayName => Localization._Instance._UI[25];
     public override Sprite _Icon => GameManager._Instance._UnitTypeIcons[1];
+    public override int _Weight => _Amount * 10;
 
-    public float _CarryLimit = 10f;
-    public float _CurrentCarry = 0f;
 
+    public int _CurrentTow;//limit is 1
+    public int _CurrentManCarry;
+    public int _ManCarryLimit = 10;
     public Truck(Unit unit) : base(unit)
     {
 
@@ -380,25 +646,44 @@ public class Truck : Squad, IWheel, ICarriableByTrain
     {
         return new Truck(attachedUnit);
     }
+    public override void AddValues(Squad squadValuesToAdd)
+    {
+        Truck tru = squadValuesToAdd as Truck;
+        _Amount += squadValuesToAdd._Amount;
+    }
 }
-public class Train : Squad, ITrain
+public class Train : Squad, ITrain, ICarryUnit
 {
     public override string _DisplayName => Localization._Instance._UI[26];
     public override Sprite _Icon => GameManager._Instance._UnitTypeIcons[2];
+    public override int _Weight => _Amount * 20;
+
+    public int _CarryLimit { get => _carryLimit; set => _carryLimit = value; }
+    public int _CurrentCarry { get => _currentCarry; set => _currentCarry = value; }
+
+    private int _currentCarry;
+    private int _carryLimit;
 
     public Train(Unit unit) : base(unit)
     {
-
+        _CarryLimit = 20;
     }
     public override Squad CreateNewSquadObject(Unit attachedUnit)
     {
         return new Train(attachedUnit);
     }
+    public override void AddValues(Squad squadValuesToAdd)
+    {
+        Train tra = squadValuesToAdd as Train;
+        _Amount += squadValuesToAdd._Amount;
+        _CurrentCarry += tra._CurrentCarry;
+    }
 }
-public class Tank : Squad, IPalette, IArmored, ICarriableByTrain
+public class Tank : Squad, IPalette, IArmored, ICarriableUnit
 {
     public override string _DisplayName => Localization._Instance._UI[27];
     public override Sprite _Icon => GameManager._Instance._UnitTypeIcons[3];
+    public override int _Weight => _Amount * 10;
 
     public Tank(Unit unit) : base(unit)
     {
@@ -408,11 +693,17 @@ public class Tank : Squad, IPalette, IArmored, ICarriableByTrain
     {
         return new Tank(attachedUnit);
     }
+    public override void AddValues(Squad squadValuesToAdd)
+    {
+        Tank tra = squadValuesToAdd as Tank;
+        _Amount += squadValuesToAdd._Amount;
+    }
 }
-public class APC : Squad, IWheel, IArmored, ICarriableByTrain
+public class APC : Squad, IWheel, IArmored, ICarriableUnit
 {
     public override string _DisplayName => Localization._Instance._UI[28];
     public override Sprite _Icon => GameManager._Instance._UnitTypeIcons[4];
+    public override int _Weight => _Amount * 10;
 
     public APC(Unit unit) : base(unit)
     {
@@ -422,12 +713,19 @@ public class APC : Squad, IWheel, IArmored, ICarriableByTrain
     {
         return new APC(attachedUnit);
     }
+    public override void AddValues(Squad squadValuesToAdd)
+    {
+        APC apc = squadValuesToAdd as APC;
+        _Amount += squadValuesToAdd._Amount;
+    }
 }
-public class Artillery : Squad, IBombFromAway, ICarriableByTrain
+public class Artillery : Squad, IBombFromAway, ICarriableUnit
 {
     public override string _DisplayName => Localization._Instance._UI[29];
     public override Sprite _Icon => GameManager._Instance._UnitTypeIcons[5];
+    public override int _Weight => _Amount * 10;
 
+    public Truck _TowedTo;
     public Artillery(Unit unit) : base(unit)
     {
 
@@ -436,11 +734,17 @@ public class Artillery : Squad, IBombFromAway, ICarriableByTrain
     {
         return new Artillery(attachedUnit);
     }
+    public override void AddValues(Squad squadValuesToAdd)
+    {
+        Artillery art = squadValuesToAdd as Artillery;
+        _Amount += squadValuesToAdd._Amount;
+    }
 }
-public class RocketArtillery : Squad, IBombFromAway, IWheel, ICarriableByTrain
+public class RocketArtillery : Squad, IBombFromAway, IWheel, ICarriableUnit
 {
     public override string _DisplayName => Localization._Instance._UI[30];
     public override Sprite _Icon => GameManager._Instance._UnitTypeIcons[6];
+    public override int _Weight => _Amount * 10;
 
     public RocketArtillery(Unit unit) : base(unit)
     {
@@ -450,40 +754,20 @@ public class RocketArtillery : Squad, IBombFromAway, IWheel, ICarriableByTrain
     {
         return new RocketArtillery(attachedUnit);
     }
-}
-public class Mortar : Squad, IBombFromAway, ICarriableByTrain
-{
-    public override string _DisplayName => Localization._Instance._UI[31];
-    public override Sprite _Icon => GameManager._Instance._UnitTypeIcons[7];
-
-    public Mortar(Unit unit) : base(unit)
+    public override void AddValues(Squad squadValuesToAdd)
     {
-
-    }
-    public override Squad CreateNewSquadObject(Unit attachedUnit)
-    {
-        return new Mortar(attachedUnit);
+        RocketArtillery roc = squadValuesToAdd as RocketArtillery;
+        _Amount += squadValuesToAdd._Amount;
     }
 }
-public class MachineGun : Squad, ICarriableByTrain
-{
-    public override string _DisplayName => Localization._Instance._UI[32];
-    public override Sprite _Icon => GameManager._Instance._UnitTypeIcons[8];
 
-    public MachineGun(Unit unit) : base(unit)
-    {
-
-    }
-    public override Squad CreateNewSquadObject(Unit attachedUnit)
-    {
-        return new MachineGun(attachedUnit);
-    }
-}
-public class AntiTank : Squad, ICarriableByTrain
+public class AntiTank : Squad, ICarriableUnit
 {
     public override string _DisplayName => Localization._Instance._UI[33];
-    public override Sprite _Icon => GameManager._Instance._UnitTypeIcons[9];
+    public override Sprite _Icon => GameManager._Instance._UnitTypeIcons[7];
+    public override int _Weight => _Amount * 10;
 
+    public Truck _TowedTo;
     public AntiTank(Unit unit) : base(unit)
     {
 
@@ -492,12 +776,19 @@ public class AntiTank : Squad, ICarriableByTrain
     {
         return new AntiTank(attachedUnit);
     }
+    public override void AddValues(Squad squadValuesToAdd)
+    {
+        AntiTank at = squadValuesToAdd as AntiTank;
+        _Amount += squadValuesToAdd._Amount;
+    }
 }
-public class AntiAir : Squad, ICarriableByTrain
+public class AntiAir : Squad, ICarriableUnit
 {
     public override string _DisplayName => Localization._Instance._UI[34];
-    public override Sprite _Icon => GameManager._Instance._UnitTypeIcons[10];
+    public override Sprite _Icon => GameManager._Instance._UnitTypeIcons[8];
+    public override int _Weight => _Amount * 10;
 
+    public Truck _TowedTo;
     public AntiAir(Unit unit) : base(unit)
     {
 
@@ -506,39 +797,37 @@ public class AntiAir : Squad, ICarriableByTrain
     {
         return new AntiAir(attachedUnit);
     }
-}
-public class PropellerPlane : Squad, IAir
-{
-    public override string _DisplayName => Localization._Instance._UI[35];
-    public override Sprite _Icon => GameManager._Instance._UnitTypeIcons[11];
-
-    public PropellerPlane(Unit unit) : base(unit)
+    public override void AddValues(Squad squadValuesToAdd)
     {
-
-    }
-    public override Squad CreateNewSquadObject(Unit attachedUnit)
-    {
-        return new PropellerPlane(attachedUnit);
+        AntiAir aa = squadValuesToAdd as AntiAir;
+        _Amount += squadValuesToAdd._Amount;
     }
 }
-public class JetPlane : Squad, IAir
+public class Jet : Squad, IAir
 {
     public override string _DisplayName => Localization._Instance._UI[36];
-    public override Sprite _Icon => GameManager._Instance._UnitTypeIcons[12];
+    public override Sprite _Icon => GameManager._Instance._UnitTypeIcons[9];
+    public override int _Weight => _Amount * 20;
 
-    public JetPlane(Unit unit) : base(unit)
+    public Jet(Unit unit) : base(unit)
     {
 
     }
     public override Squad CreateNewSquadObject(Unit attachedUnit)
     {
-        return new JetPlane(attachedUnit);
+        return new Jet(attachedUnit);
+    }
+    public override void AddValues(Squad squadValuesToAdd)
+    {
+        Jet jet = squadValuesToAdd as Jet;
+        _Amount += squadValuesToAdd._Amount;
     }
 }
 public class Helicopter : Squad, IAir
 {
     public override string _DisplayName => Localization._Instance._UI[37];
-    public override Sprite _Icon => GameManager._Instance._UnitTypeIcons[13];
+    public override Sprite _Icon => GameManager._Instance._UnitTypeIcons[10];
+    public override int _Weight => _Amount * 20;
 
     public Helicopter(Unit unit) : base(unit)
     {
@@ -548,25 +837,44 @@ public class Helicopter : Squad, IAir
     {
         return new Helicopter(attachedUnit);
     }
+    public override void AddValues(Squad squadValuesToAdd)
+    {
+        Helicopter hel = squadValuesToAdd as Helicopter;
+        _Amount += squadValuesToAdd._Amount;
+    }
 }
-public class CargoPlane : Squad, IAir
+public class CargoPlane : Squad, IAir, ICarryUnit
 {
     public override string _DisplayName => Localization._Instance._UI[38];
-    public override Sprite _Icon => GameManager._Instance._UnitTypeIcons[14];
+    public override Sprite _Icon => GameManager._Instance._UnitTypeIcons[11];
+    public override int _Weight => _Amount * 50;
+
+    public int _CarryLimit { get => _carryLimit; set => _carryLimit = value; }
+    public int _CurrentCarry { get => _currentCarry; set => _currentCarry = value; }
+
+    private int _currentCarry;
+    private int _carryLimit;
 
     public CargoPlane(Unit unit) : base(unit)
     {
-
+        _CarryLimit = 50;
     }
     public override Squad CreateNewSquadObject(Unit attachedUnit)
     {
         return new CargoPlane(attachedUnit);
     }
+    public override void AddValues(Squad squadValuesToAdd)
+    {
+        CargoPlane carg = squadValuesToAdd as CargoPlane;
+        _Amount += squadValuesToAdd._Amount;
+        _CurrentCarry += carg._CurrentCarry;
+    }
 }
 public class Cruiser : Squad, INavy
 {
     public override string _DisplayName => Localization._Instance._UI[39];
-    public override Sprite _Icon => GameManager._Instance._UnitTypeIcons[15];
+    public override Sprite _Icon => GameManager._Instance._UnitTypeIcons[12];
+    public override int _Weight => _Amount * 100;
 
     public Cruiser(Unit unit) : base(unit)
     {
@@ -576,11 +884,17 @@ public class Cruiser : Squad, INavy
     {
         return new Cruiser(attachedUnit);
     }
+    public override void AddValues(Squad squadValuesToAdd)
+    {
+        Cruiser cru = squadValuesToAdd as Cruiser;
+        _Amount += squadValuesToAdd._Amount;
+    }
 }
 public class Destroyer : Squad, INavy
 {
     public override string _DisplayName => Localization._Instance._UI[40];
-    public override Sprite _Icon => GameManager._Instance._UnitTypeIcons[16];
+    public override Sprite _Icon => GameManager._Instance._UnitTypeIcons[13];
+    public override int _Weight => _Amount * 50;
 
     public Destroyer(Unit unit) : base(unit)
     {
@@ -590,11 +904,17 @@ public class Destroyer : Squad, INavy
     {
         return new Destroyer(attachedUnit);
     }
+    public override void AddValues(Squad squadValuesToAdd)
+    {
+        Destroyer des = squadValuesToAdd as Destroyer;
+        _Amount += squadValuesToAdd._Amount;
+    }
 }
 public class Corvette : Squad, INavy
 {
     public override string _DisplayName => Localization._Instance._UI[41];
-    public override Sprite _Icon => GameManager._Instance._UnitTypeIcons[17];
+    public override Sprite _Icon => GameManager._Instance._UnitTypeIcons[14];
+    public override int _Weight => _Amount * 20;
 
     public Corvette(Unit unit) : base(unit)
     {
@@ -604,18 +924,37 @@ public class Corvette : Squad, INavy
     {
         return new Corvette(attachedUnit);
     }
-}
-public class Submarine : Squad, INavy
-{
-    public override string _DisplayName => Localization._Instance._UI[42];
-    public override Sprite _Icon => GameManager._Instance._UnitTypeIcons[18];
-
-    public Submarine(Unit unit) : base(unit)
+    public override void AddValues(Squad squadValuesToAdd)
     {
+        Corvette cor = squadValuesToAdd as Corvette;
+        _Amount += squadValuesToAdd._Amount;
+    }
+}
 
+public class TransportShip : Squad, INavy, ICarryUnit
+{
+    public override string _DisplayName => Localization._Instance._UI[31];
+    public override Sprite _Icon => GameManager._Instance._UnitTypeIcons[15];
+    public override int _Weight => _Amount * 100;
+
+    public int _CarryLimit { get => _carryLimit; set => _carryLimit = value; }
+    public int _CurrentCarry { get => _currentCarry; set => _currentCarry = value; }
+
+    private int _currentCarry;
+    private int _carryLimit;
+
+    public TransportShip(Unit unit) : base(unit)
+    {
+        _CarryLimit = 100;
     }
     public override Squad CreateNewSquadObject(Unit attachedUnit)
     {
-        return new Submarine(attachedUnit);
+        return new TransportShip(attachedUnit);
+    }
+    public override void AddValues(Squad squadValuesToAdd)
+    {
+        TransportShip tra = squadValuesToAdd as TransportShip;
+        _Amount += squadValuesToAdd._Amount;
+        _CurrentCarry += tra._CurrentCarry;
     }
 }

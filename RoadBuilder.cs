@@ -22,7 +22,6 @@ public class RoadBuilder : MonoBehaviour
     private void Awake()
     {
         _Instance = this;
-
         _dirtContainer = GameObject.Find("RoadSystemDirt").transform;
         _asphaltContainer = GameObject.Find("RoadSystemAsphalt").transform;
         _railContainer = GameObject.Find("RoadSystemRail").transform;
@@ -38,11 +37,10 @@ public class RoadBuilder : MonoBehaviour
 
     public void UpdateRoadGhost(Vector3 firstPos, Vector3 secondPos, TerrainPoint point)
     {
-        firstPos += Vector3.up * 12f;
-        secondPos += Vector3.up * 12f;
         _RoadGhost.SetActive(true);
-        _RoadGhost.GetComponent<LineRenderer>().SetPosition(0, firstPos);
-        _RoadGhost.GetComponent<LineRenderer>().SetPosition(1, secondPos);
+        //_RoadGhost.GetComponent<LineRenderer>().SetPosition(0, firstPos);
+        //_RoadGhost.GetComponent<LineRenderer>().SetPosition(1, secondPos);
+        TerrainController._Instance.ArrangeMergingLineRenderer(_RoadGhost.GetComponent<LineRenderer>(), firstPos, secondPos);
 
         if (TerrainController._Instance.CanPlaceConstruction(point))
         {
@@ -55,6 +53,7 @@ public class RoadBuilder : MonoBehaviour
             _RoadGhost.GetComponent<LineRenderer>().material = TerrainController._Instance._RoadRedGhostMat;
         }
     }
+
     public bool IsRoadTooShort(Vector3 worldPos)
     {
         Vector3 lastKnotPosition = _ActiveSplineContainer.transform.TransformPoint(_ActiveSplineContainer.Splines[0][_ActiveSplineContainer.Splines[0].Count - 1].Position);
@@ -69,35 +68,13 @@ public class RoadBuilder : MonoBehaviour
             Vector3 firstDirection = ((Vector3)(_ActiveSplineContainer.Splines[0][_ActiveSplineContainer.Splines[0].Count - 1].Position - _ActiveSplineContainer.Splines[0][_ActiveSplineContainer.Splines[0].Count - 2].Position)).normalized;
             Vector3 secondDirection = (_ActiveSplineContainer.transform.InverseTransformPoint(worldPos) - (Vector3)_ActiveSplineContainer.Splines[0][_ActiveSplineContainer.Splines[0].Count - 1].Position).normalized;
             float angle = Vector3.Angle(firstDirection, secondDirection);
-            if (angle > 60f)
+            if (angle > 100f)
                 return true;
             return false;
         }
         return false;
     }
-    private float GetTerrainHeightAtPosition(Vector3 pos, float rayDistance)
-    {
-        Ray ray = new Ray(pos + Vector3.up * rayDistance, Vector3.down);
-        if (Physics.Raycast(ray, out RaycastHit hit, rayDistance * 1.5f, LayerMask.GetMask("Terrain")))
-        {
-            if (hit.collider.TryGetComponent<Terrain>(out Terrain terrain))
-            {
-                Vector3 terrainPos = pos - terrain.transform.position;
 
-                float normX = terrainPos.x / terrain.terrainData.size.x;
-                float normZ = terrainPos.z / terrain.terrainData.size.z;
-
-                float height = terrain.SampleHeight(pos);
-                Vector3 terrainNormal = terrain.terrainData.GetInterpolatedNormal(normX, normZ);
-                Vector3 offset = terrainNormal * 5f;
-                offset = offset.y < 0 ? Vector3.zero : offset;
-                return (new Vector3(pos.x, height, pos.z) + offset).y;
-
-                //return hit.point.y;
-            }
-        }
-        return 0f;
-    }
     private void RoadMeshToTerrainHeight(Mesh mesh, Transform meshTransform)
     {
         if (mesh == null)
@@ -113,7 +90,7 @@ public class RoadBuilder : MonoBehaviour
         {
             Vector3 worldPos = meshTransform.TransformPoint(vertices[i]);
 
-            float terrainHeight = GetTerrainHeightAtPosition(worldPos, 300f) + UnityEngine.Random.Range(-0.01f, 0.01f);
+            float terrainHeight = TerrainController._Instance.GetTerrainHeightAtPosition(worldPos, 300f) + UnityEngine.Random.Range(-0.01f, 0.01f);
             Vector3 adjustedWorldPos = new Vector3(worldPos.x, terrainHeight + _heightOffset, worldPos.z);
             vertices[i] = meshTransform.InverseTransformPoint(adjustedWorldPos);
 
@@ -171,13 +148,16 @@ public class RoadBuilder : MonoBehaviour
         //container.Splines[0].ConvertToCurved();
         for (int i = 0; i < container[0].Count; i++)
         {
-            if (i != 0 && i != container[0].Count - 1)
+            if (i == 0 || i == container[0].Count - 1)
+                container[0].SetTangentMode(i, TangentMode.Continuous);
+            else
                 container[0].SetTangentMode(i, TangentMode.AutoSmooth);
         }
         container.GetComponent<SplineExtrude>().Capped = true;
         container.GetComponent<SplineExtrude>().Rebuild();
-        GameManager._Instance.CallForAction(() => RoadMeshToTerrainHeight(container.GetComponent<MeshFilter>().sharedMesh, container.transform), 0.01f, false);
+        GameManager._Instance.CallForAction(() => RoadMeshToTerrainHeight(container.GetComponent<MeshFilter>().sharedMesh, container.transform), 0.1f, false);
     }
+
     public RoadSplineData GetRoadDataForSaving(GameObject containerObj)
     {
         RoadSplineData newData = new RoadSplineData();
@@ -205,7 +185,7 @@ public class RoadBuilder : MonoBehaviour
             newKnot.TangentIn = data._RoadKnotTangentIn[i];
             newKnot.TangentOut = data._RoadKnotTangentOut[i];
 
-            roadObj.GetComponent<SplineContainer>().Splines[0].Add(newKnot);
+            roadObj.GetComponent<SplineContainer>().Splines[0].Add(newKnot, TangentMode.AutoSmooth);
         }
     }
     public void AddRoad(TerrainPoint terrainPoint)
@@ -215,7 +195,7 @@ public class RoadBuilder : MonoBehaviour
         else
             TryAddKnotToSpline(terrainPoint._Position);
 
-        GameManager._Instance.OpenOrCloseProcessingScreen(false);
+        GameManager._Instance.CallForAction(() => GameManager._Instance.OpenOrCloseProcessingScreen(false), 0.1f, false);
     }
 
     private void TryAddKnotToSpline(Vector3 worldPos)
@@ -250,63 +230,26 @@ public class RoadBuilder : MonoBehaviour
             lastKnotPosition = _ActiveSplineContainer.transform.TransformPoint(_ActiveSplineContainer.Splines[0][_ActiveSplineContainer.Splines[0].Count - 1].Position);
         }
 
-        AddKnotToSpline(worldPos);
+        AddKnotToSpline(worldPos, true);
     }
-    private void AddKnotToSpline(Vector3 worldPos)
+    private void AddKnotToSpline(Vector3 worldPos, bool isCheckingSnap = false)
     {
-        Vector3 worldPosOld = worldPos;
-        float snapDistance = _SnapDistance;
-        Transform containerTransform = GetContainer(TerrainController._Instance._SelectedConstructionType);
-        Vector3 snappedKnotDirection = Vector3.zero;
-        foreach (Transform containerObject in containerTransform.transform)
-        {
-            if (containerObject.name == "Pool") continue;
-            Spline spline = containerObject.GetComponent<SplineContainer>().Splines[0];
-            for (int i = 0; i < spline.Count; i++)
-            {
-                Vector3 knotWorldPos = containerTransform.transform.TransformPoint(spline[i].Position);
-                if (Vector3.Distance(new Vector3(worldPosOld.x, 0f, worldPosOld.z), new Vector3(knotWorldPos.x, 0f, knotWorldPos.z)) <= snapDistance)
-                {
-                    worldPos = knotWorldPos;
-                    snapDistance = Vector3.Distance(new Vector3(worldPosOld.x, 0f, worldPosOld.z), new Vector3(knotWorldPos.x, 0f, knotWorldPos.z));
+        SplineContainer snappingSplineContainerForSmooth = CheckLastPointSnap(isCheckingSnap, ref worldPos);
 
-                    if (spline.Count > 1 && (i == 0 || i == spline.Count - 1))
-                    {
-                        if (i == 0)
-                            snappedKnotDirection = ((Vector3)(spline[1].Position - spline[0].Position)).normalized;
-                        else if (i == spline.Count - 1)
-                            snappedKnotDirection = ((Vector3)(spline[spline.Count - 2].Position - spline[spline.Count - 1].Position)).normalized;
-                    }
-                }
-            }
-        }
-
-        worldPos.y = GetTerrainHeightAtPosition(worldPos, 1000f);
+        worldPos.y = TerrainController._Instance.GetTerrainHeightAtPosition(worldPos, 1000f);
         Vector3 localStart = _ActiveSplineContainer.transform.InverseTransformPoint(worldPos);
 
-        Vector3 tangentOut = Vector3.zero;
-        int knotCount = _ActiveSplineContainer.Splines[0].Count;
-        if (knotCount > 0)
-        {
-            var prevKnot = _ActiveSplineContainer.Splines[0][knotCount - 1];
-            Vector3 prevPos = prevKnot.Position;
-            tangentOut = (localStart - prevPos).normalized * 5f;
-        }
-        Vector3 tangentIn = -tangentOut;
+        _ActiveSplineContainer.Splines[0].Add(new BezierKnot(localStart), TangentMode.AutoSmooth);
 
-        if (knotCount > 0 && snappedKnotDirection != Vector3.zero)
+        if (snappingSplineContainerForSmooth != null && _ActiveSplineContainer[0].Count > 1)
         {
-            Vector3 newRoadDir = (worldPos - (Vector3)_ActiveSplineContainer.Splines[0][knotCount - 1].Position).normalized;
-            Vector3 avgDir = (newRoadDir + snappedKnotDirection).normalized;
-
-            float tangentLength = 2f;
-            Vector3 tangent = avgDir * tangentLength;
-            tangentIn.z = -tangent.z;
-            tangentIn.y = 0f;
-            tangentIn.x = 0f;
+            ReArrangeSpline(_ActiveSplineContainer);
+            Vector3 beforePos = _ActiveSplineContainer.transform.TransformPoint(_ActiveSplineContainer[0][_ActiveSplineContainer[0].Count - 2].Position);
+            Vector3 forwardPos = snappingSplineContainerForSmooth.transform.TransformPoint(snappingSplineContainerForSmooth[0][1].Position);
+            AutoSmoothSplines(_ActiveSplineContainer, snappingSplineContainerForSmooth, worldPos, beforePos, forwardPos, _ActiveSplineContainer[0].Count - 1, 0);
         }
 
-        _ActiveSplineContainer.Splines[0].Add(new BezierKnot(localStart, tangentIn, tangentOut, Quaternion.identity));
+
         if (_ActiveSplineContainer.Splines[0].GetLength() > _maxRoadMagnitude)
             SplitNewRoad(worldPos);
         else
@@ -316,42 +259,88 @@ public class RoadBuilder : MonoBehaviour
         _RoadPointGhost.transform.position = worldPos;
         //Debug.Log($"added knot to {_ActiveSplineContainer.Splines[0]} in {TerrainController._Instance._SelectedConstructionType}");
     }
+    private SplineContainer CheckLastPointSnap(bool isCheckingSnap, ref Vector3 worldPos)
+    {
+        SplineContainer snappingSplineContainerForSmooth = null;
+        Vector3 worldPosOld = worldPos;
+        float snapDistance = _SnapDistance;
+        Transform containerTransform = GetContainer(TerrainController._Instance._SelectedConstructionType);
+        foreach (Transform containerObject in containerTransform.transform)
+        {
+            if (!isCheckingSnap) break;
+            if (containerObject.name == "Pool") continue;
+            Spline spline = containerObject.GetComponent<SplineContainer>().Splines[0];
+            if (spline.Count < 2) continue;
+            for (int i = 0; i < spline.Count; i++)
+            {
+                bool closeSnappingFromAngle = false;
+                Vector3 knotWorldPos = containerTransform.transform.TransformPoint(spline[i].Position);
+                float checkDistance = Vector3.Distance(new Vector3(worldPosOld.x, 0f, worldPosOld.z), new Vector3(knotWorldPos.x, 0f, knotWorldPos.z));
+                if (checkDistance <= snapDistance)
+                {
+                    if (i == 0 || i == spline.Count - 1)
+                    {
+                        Vector3 newRoadDir = (knotWorldPos - _ActiveSplineContainer.transform.TransformPoint(_ActiveSplineContainer[0][_ActiveSplineContainer[0].Count - 1].Position)).normalized;
+                        Vector3 oldRoadDir = ((Vector3)(i == 0 ? spline[1].Position : spline[spline.Count - 2].Position) - knotWorldPos).normalized;
+                        float angle = Vector2.Angle(new Vector2(newRoadDir.x, newRoadDir.z), new Vector2(oldRoadDir.x, oldRoadDir.z));
+                        if (angle <= 140f)
+                        {
+                            if (i == spline.Count - 1)
+                                spline.Reverse();
+
+                            snappingSplineContainerForSmooth = containerObject.GetComponent<SplineContainer>();
+                        }
+                        else
+                            closeSnappingFromAngle = true;
+                    }
+
+                    if (!closeSnappingFromAngle)
+                    {
+                        worldPos = knotWorldPos;
+                        snapDistance = Vector3.Distance(new Vector3(worldPosOld.x, 0f, worldPosOld.z), new Vector3(knotWorldPos.x, 0f, knotWorldPos.z));
+                    }
+                }
+            }
+        }
+        return snappingSplineContainerForSmooth;
+    }
     private void SplitNewRoad(Vector3 worldPos)
     {
         if (_ActiveSplineContainer.Splines[0].Count == 1)
         {
             Debug.Log("Count 1!");
         }
+        worldPos.y = TerrainController._Instance.GetTerrainHeightAtPosition(worldPos, 1000f);
 
         BezierKnot midNode = _ActiveSplineContainer.Splines[0][_ActiveSplineContainer.Splines[0].Count - 2];
         _ActiveSplineContainer.Splines[0].RemoveAt(_ActiveSplineContainer.Splines[0].Count - 1);
-        ReArrangeSpline(_ActiveSplineContainer);
+        //ReArrangeSpline(_ActiveSplineContainer);
         Vector3 midPos = _ActiveSplineContainer.transform.TransformPoint(midNode.Position);
 
-        SplineContainer newSpline = StartSplineObject(_ActiveSplineContainer.transform.parent, midPos);
         SplineContainer oldSpline = _ActiveSplineContainer;
-        ChangeActiveSplineContainer(newSpline);
-        worldPos.y = GetTerrainHeightAtPosition(worldPos, 1000f);
+        SplineContainer newSpline = StartSplineObject(_ActiveSplineContainer.transform.parent, midPos);
+
         Vector3 connectionDirection = (worldPos - midPos).normalized;
-        _ActiveSplineContainer.Splines[0].Add(new BezierKnot((Vector3)midNode.Position + connectionDirection * 30f, Vector3.zero, Vector3.zero, Quaternion.identity));
-        _ActiveSplineContainer.Splines[0].Add(new BezierKnot(_ActiveSplineContainer.transform.InverseTransformPoint(worldPos), Vector3.zero, Vector3.zero, Quaternion.identity));
-        SetTangentForSplit(oldSpline[0], newSpline[0], (worldPos - midPos).normalized);
-        ReArrangeSpline(_ActiveSplineContainer);
+        float connectionNodeDistance = (worldPos - midPos).magnitude > 160f ? 90f : 30f;
+        Vector3 connectionNodePos = midPos + connectionDirection * connectionNodeDistance;
+
+        _ActiveSplineContainer.Splines[0].Add(new BezierKnot(connectionNodePos), TangentMode.AutoSmooth);
+        _ActiveSplineContainer.Splines[0].Add(new BezierKnot(_ActiveSplineContainer.transform.InverseTransformPoint(worldPos)), TangentMode.AutoSmooth);
+        AutoSmoothSplines(oldSpline, newSpline, midPos, oldSpline.transform.TransformPoint(oldSpline.Splines[0][oldSpline.Splines[0].Count - 2].Position), connectionNodePos, oldSpline[0].Count - 1, 0);
     }
-    private void SetTangentForSplit(Spline spline1, Spline spline2, Vector3 newRoadRid)
+    private void AutoSmoothSplines(SplineContainer container1, SplineContainer container2, Vector3 midPos, Vector3 oldPos, Vector3 newPos, int spline1Index, int spline2Index)
     {
-        if (spline1.Count < 2) return;
+        Spline spline1 = container1[0];
+        Spline spline2 = container2[0];
+        if (spline1.Count == 0 || spline2.Count == 0) return;
 
-        Vector3 oldRoadDir = ((Vector3)(spline1[spline1.Count - 1].Position - spline1[spline1.Count - 2].Position)).normalized;
-        Vector3 avgDir = (oldRoadDir + newRoadRid).normalized;
-
-        float tangentLength = 2f;
-        Vector3 tangent = avgDir * tangentLength;
-
-        BezierKnot smoothKnot = spline2[0];
-        smoothKnot.TangentOut.z = tangent.z;
-
-        spline2.SetKnot(0, smoothKnot);
+        BezierKnot midKnot = SplineUtility.GetAutoSmoothKnot(midPos, oldPos, newPos);
+        spline1.SetKnot(spline1Index, midKnot);
+        spline2.SetKnot(spline2Index, midKnot);
+        spline1.SetTangentMode(spline1Index, TangentMode.Continuous);
+        spline2.SetTangentMode(spline2Index, TangentMode.Continuous);
+        ReArrangeSpline(container1);
+        ReArrangeSpline(container2);
     }
 
     private void FindOrStartSpline(Vector3 worldPos)

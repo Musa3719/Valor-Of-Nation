@@ -5,6 +5,14 @@ using UnityEngine.UI;
 
 public static class ExtensionMethods
 {
+    public static T GetSquadThisType<T>(this List<Squad> squads) where T : Squad
+    {
+        for (int i = 0; i < squads.Count; i++)
+        {
+            if (squads[i] is T) return squads[i] as T;
+        }
+        return null;
+    }
     public static bool Contains(this Button[] buttons, GameObject isContainsObj)
     {
         if (buttons == null) return false;
@@ -29,12 +37,14 @@ public static class ExtensionMethods
 
     public static void ClearSelected(this List<GameObject> selectedObjects)
     {
-        foreach (var selectedObj in selectedObjects)
+        List<GameObject> copy = new List<GameObject>();
+        for (int i = 0; i < selectedObjects.Count; i++)
         {
-            if (selectedObj.transform.Find("PotentialRouteGhost") != null)
-                selectedObj.transform.Find("PotentialRouteGhost").gameObject.SetActive(false);
-            if (selectedObj.transform.Find("CurrentRouteGhost") != null)
-                selectedObj.transform.Find("CurrentRouteGhost").gameObject.SetActive(false);
+            copy.Add(selectedObjects[i]);
+        }
+        foreach (var selectedObj in copy)
+        {
+            GameInputController._Instance.DeSelectUnit(selectedObj);
         }
         selectedObjects.Clear();
 
@@ -42,7 +52,12 @@ public static class ExtensionMethods
     }
     public static void ClearSelected(this List<Squad> selectedSquads)
     {
-        foreach (var selectedSquad in selectedSquads)
+        List<Squad> copy = new List<Squad>();
+        for (int i = 0; i < selectedSquads.Count; i++)
+        {
+            copy.Add(selectedSquads[i]);
+        }
+        foreach (var selectedSquad in copy)
         {
             GameInputController._Instance.DeSelectSquad(selectedSquad);
         }
@@ -105,3 +120,29 @@ public static class ExtensionMethods
         }
     }
 }
+
+
+
+/*
+ArrangeOrderGhostForPlayer()
+if (!isPressingShift || executerObject.GetComponent<Unit>()._TargetPositions.Count == 0)
+{
+    executerObject.transform.Find("PotentialRouteGhost").GetComponent<LineRenderer>().positionCount = 2;
+
+    TerrainController._Instance.ArrangeMergingLineRenderer(executerObject.transform.Find("PotentialRouteGhost").GetComponent<LineRenderer>(), firstPos.Value, secondPos.Value);
+    //executerObject.transform.Find("PotentialRouteGhost").GetComponent<LineRenderer>().SetPosition(0, firstPos.Value);
+    //executerObject.transform.Find("PotentialRouteGhost").GetComponent<LineRenderer>().SetPosition(1, secondPos.Value);
+}
+else
+{
+    executerObject.transform.Find("PotentialRouteGhost").GetComponent<LineRenderer>().positionCount = executerObject.transform.Find("CurrentRouteGhost").GetComponent<LineRenderer>().positionCount + 1;
+
+    for (int i = 0; i < executerObject.transform.Find("CurrentRouteGhost").GetComponent<LineRenderer>().positionCount; i++)
+    {
+        executerObject.transform.Find("PotentialRouteGhost").GetComponent<LineRenderer>().SetPosition(i, executerObject.transform.Find("CurrentRouteGhost").GetComponent<LineRenderer>().GetPosition(i));
+    }
+    executerObject.transform.Find("PotentialRouteGhost").GetComponent<LineRenderer>().SetPosition(executerObject.transform.Find("PotentialRouteGhost").GetComponent<LineRenderer>().positionCount - 1, secondPos.Value + Vector3.up * 10f);
+}
+
+
+*/
