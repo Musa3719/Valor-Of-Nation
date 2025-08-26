@@ -178,7 +178,8 @@ public class ForestGenerator : MonoBehaviour
 
         MeshCollider mc = gameObject.GetComponent<MeshCollider>();
         mc.sharedMesh = mesh;
-        mc.convex = false;
+        mc.convex = true;
+        mc.isTrigger = true;
     }
 
     [ContextMenu("Clear Forest")]

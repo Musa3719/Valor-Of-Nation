@@ -40,6 +40,28 @@ public class Storage
         return null;
     }
 
+    public Storage SplitStorage(float percent)
+    {
+        Storage newStorage = new Storage();
+        foreach (var good in _StoredGoods)
+        {
+            Goods newGood = new Goods();
+            newGood._Type = good._Type;
+            int amount = (int)(good._Amount * percent);
+            newGood._Amount = amount;
+            good._Amount -= amount;
+            if (amount > 0)
+                newStorage.GainGoods(good);
+        }
+        return newStorage;
+    }
+    public void AddStorage(Storage newStorage)
+    {
+        foreach (var good in newStorage._StoredGoods)
+        {
+            GainGoods(good);
+        }
+    }
 }
 [System.Serializable]
 public class Goods

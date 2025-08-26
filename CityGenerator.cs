@@ -27,7 +27,7 @@ public class CityGenerator : MonoBehaviour
         {
             basePos.y = hit.point.y;
         }
-        int buildingCount = Mathf.RoundToInt(0.02f * Mathf.PI * _Radius * _Radius);
+        int buildingCount = Mathf.RoundToInt(0.07f * Mathf.PI * _Radius * _Radius);
         for (int i = 0; i < buildingCount; i++)
         {
             Vector3 spawnPos = GetSpawnPos(basePos);
@@ -35,8 +35,8 @@ public class CityGenerator : MonoBehaviour
 
             GameObject prefab = _BuildingPrefabs[Random.Range(0, _BuildingPrefabs.Count)];
             GameObject building = (GameObject)PrefabUtility.InstantiatePrefab(prefab, transform.Find("Spawned"));
-            building.transform.position = spawnPos;
-            building.transform.localScale = new Vector3(building.transform.localScale.x / transform.localScale.x, building.transform.localScale.y / transform.localScale.y, building.transform.localScale.z / transform.localScale.z) * Random.Range(0.85f, 1.15f);
+            building.transform.localScale = new Vector3(building.transform.localScale.x / transform.localScale.x, building.transform.localScale.y / transform.localScale.y, building.transform.localScale.z / transform.localScale.z) * 0.5f * Random.Range(0.85f, 1.15f);
+            building.transform.position = spawnPos - Vector3.up * 1f;
 
             float randomYRotation = Random.Range(0f, 360f);
             building.transform.rotation = Quaternion.Euler(0, randomYRotation, 0);

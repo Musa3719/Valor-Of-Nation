@@ -18,37 +18,12 @@ public class UnitRefForUI : MonoBehaviour
         if (GameManager._Instance._InputActions.FindAction("Sprint").ReadValue<float>() == 0f)
             GameInputController._Instance._SelectedSquads.ClearSelected();
 
-        bool isAllSquadsSelected = IsAllSquadsSelected();
-        foreach (Squad squad in _UnitReferance._Squads)
-        {
-            if (isAllSquadsSelected)
-            {
-                if (GameInputController._Instance._SelectedSquads.Contains(squad))
-                {
-                    GameInputController._Instance.DeSelectSquad(squad);
-                }
-            }
-            else
-            {
-                if (!GameInputController._Instance._SelectedSquads.Contains(squad))
-                {
-                    GameInputController._Instance.SelectSquad(squad);
-                }
-            }
-
-        }
+        if (GameInputController._Instance._SelectedSquads.Contains(_UnitReferance._Squad))
+            GameInputController._Instance.DeSelectSquad(_UnitReferance._Squad);
+        else
+            GameInputController._Instance.SelectSquad(_UnitReferance._Squad);
+        
 
         GameInputController._Instance.UpdateUI();
     }
-    private bool IsAllSquadsSelected()
-    {
-        foreach (Squad squad in _UnitReferance._Squads)
-        {
-            if (!squad._IsSquadSelected) return false;
-        }
-        return true;
-    }
-
-
-
 }

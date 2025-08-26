@@ -16,8 +16,6 @@ public class TerrainController : MonoBehaviour
     public GameObject _DirtRoadPrefab;
     public GameObject _AsphaltRoadPrefab;
     public GameObject _RailRoadPrefab;
-    public Material _RoadRedGhostMat;
-    public Material _RoadWhiteGhostMat;
     public Material _RemovalGhostMat;
 
     private Material[] _removalGhostOldMats;
@@ -149,21 +147,38 @@ public class TerrainController : MonoBehaviour
 
                 float height = terrain.SampleHeight(pos);
                 Vector3 terrainNormal = terrain.terrainData.GetInterpolatedNormal(normX, normZ);
-                Vector3 offset = terrainNormal * 5f;
+                Vector3 offset = terrainNormal * 3f;
                 offset = offset.y < 0 ? Vector3.zero : offset;
-                return (new Vector3(pos.x, height, pos.z) + offset).y;
-
+                return height;
+                //return (new Vector3(pos.x, height, pos.z) + offset).y;
                 //return hit.point.y;
             }
         }
         return 0f;
     }
-    public void ArrangeMergingLineRenderer(LineRenderer lineRenderer, Vector3 start, Vector3 end, float yOffset = 0f, float maxSegmentLength = 25f)
+    public float GetSeaLevel()
+    {
+        Ray ray = new Ray(Vector3.up * 2000f, Vector3.down);
+        if (Physics.Raycast(ray, out RaycastHit hit, 3000f, LayerMask.GetMask("Water")) && hit.collider != null)
+            return hit.point.y;
+        return 0f;
+    }
+    public float GetSeaLevelOrTerrainHeight(Vector3 pos)
+    {
+        Ray ray = new Ray(pos + Vector3.up * 2000f, Vector3.down);
+        if (Physics.Raycast(ray, out RaycastHit hit, 3000f, GameManager._Instance._TerrainAndWaterLayers) && hit.collider != null)
+            return hit.point.y;
+        return 0f;
+    }
+    public void ArrangeMergingLineRenderer(LineRenderer lineRenderer, Vector3 start, Vector3 end, Vector3 groundDirection, float maxSegmentLength = 10f, float upOffset = 1.25f)
     {
         if (lineRenderer == null) return;
 
         List<Vector3> adjustedPositions = new List<Vector3>();
 
+        Physics.Raycast(start - groundDirection * 200f, groundDirection, out RaycastHit hit, 400f, GameManager._Instance._TerrainAndWaterLayers);
+        float height = hit.point.y + upOffset;
+        start = new Vector3(hit.point.x, height, hit.point.z);
         float dist = Vector3.Distance(start, end);
 
         adjustedPositions.Add(start);
@@ -180,10 +195,10 @@ public class TerrainController : MonoBehaviour
         }
         adjustedPositions.Add(end);
 
-        for (int i = 0; i < adjustedPositions.Count; i++)
+        for (int i = 1; i < adjustedPositions.Count; i++)
         {
-            Physics.Raycast(adjustedPositions[i] + Vector3.up * 200f, -Vector3.up, out RaycastHit hit, 400f, GameManager._Instance._TerrainAndWaterLayers);
-            float height = hit.point.y + 4f;
+            Physics.Raycast(adjustedPositions[i] + Vector3.up * 200f, -Vector3.up, out hit, 400f, GameManager._Instance._TerrainAndWaterLayers);
+            height = hit.point.y + upOffset;
             adjustedPositions[i] = new Vector3(adjustedPositions[i].x, height, adjustedPositions[i].z);
         }
 
@@ -191,11 +206,16 @@ public class TerrainController : MonoBehaviour
             lineRenderer.positionCount = adjustedPositions.Count;
         lineRenderer.SetPositions(adjustedPositions.ToArray());
     }
-    public void ArrangeMergingLineRenderer(LineRenderer lineRenderer, List<Vector3> points, float maxSegmentLength = 25f)
+    public void ArrangeMergingLineRenderer(LineRenderer lineRenderer, List<Vector3> points, Vector3 groundDirection, float maxSegmentLength = 10f)
     {
         if (lineRenderer == null || points == null || points.Count < 1) return;
 
         List<Vector3> adjustedPositions = new List<Vector3>();
+
+        Physics.Raycast(points[0] - groundDirection * 200f, groundDirection, out RaycastHit hit, 400f, GameManager._Instance._TerrainAndWaterLayers);
+        float height = hit.point.y + 1f;
+        points[0] = new Vector3(hit.point.x, height, hit.point.z);
+
         adjustedPositions.Add(points[0]);
         for (int i = 0; i < points.Count - 1; i++)
         {
@@ -217,10 +237,10 @@ public class TerrainController : MonoBehaviour
             adjustedPositions.Add(end);
         }
 
-        for (int i = 0; i < adjustedPositions.Count; i++)
+        for (int i = 1; i < adjustedPositions.Count; i++)
         {
-            Physics.Raycast(adjustedPositions[i] + Vector3.up * 200f, -Vector3.up, out RaycastHit hit, 400f, GameManager._Instance._TerrainAndWaterLayers);
-            float height = hit.point.y + 4f;
+            Physics.Raycast(adjustedPositions[i] + Vector3.up * 200f, -Vector3.up, out hit, 400f, GameManager._Instance._TerrainAndWaterLayers);
+            height = hit.point.y + 1f;
             adjustedPositions[i] = new Vector3(adjustedPositions[i].x, height, adjustedPositions[i].z);
         }
 
@@ -584,33 +604,38 @@ public class TerrainController : MonoBehaviour
     public TerrainPoint GetTerrainPointFromObject(Transform transform)
     {
         Ray terrainRay = new Ray(transform.position + transform.up * 100f, -transform.up);
-        return GetTerrainCommon(terrainRay);
+        return GetTerrainPointCommon(terrainRay, transform);
     }
     public TerrainPoint GetTerrainPointFromMouse()
     {
         Ray terrainRay = Camera.main.ScreenPointToRay(Mouse.current.position.ReadValue());
-        return GetTerrainCommon(terrainRay);
+        return GetTerrainPointCommon(terrainRay);
     }
-    private TerrainPoint GetTerrainCommon(Ray terrainRay)
+    private TerrainPoint GetTerrainPointCommon(Ray terrainRay, Transform checkerObj = null)
     {
         TerrainPoint terrainPoint = new TerrainPoint();
         if (Physics.Raycast(terrainRay, out RaycastHit hit, 30000f, GameManager._Instance._TerrainAndWaterLayers) && hit.collider != null)
         {
-            terrainPoint._Position = hit.point;
+            Vector3 pos = hit.point;
+            pos.y = GetTerrainHeightAtPosition(pos, 1000f);
+            terrainPoint._Position = pos;
             terrainPoint._Normal = hit.normal;
             terrainPoint._TerrainLowerType = GetLowerType(hit, out float baseSupplyMultiplier);
             terrainPoint._BaseSupplyMultiplier = baseSupplyMultiplier;
             terrainPoint._Temperature = GetTemperature(hit);
             //Debug.Log(terrainPoint._TerrainLowerType + " " + terrainPoint._BaseSupplyMultiplier + " " + terrainPoint._Temperature);
         }
-        if (Physics.Raycast(terrainRay, out hit, 30000f, LayerMask.GetMask("UpperTerrain")) && hit.collider != null)
+        if (checkerObj != null && Physics.Raycast(checkerObj.transform.position + Vector3.up * 100f, -Vector3.up, out RaycastHit hitDown, 30000f, LayerMask.GetMask("UpperTerrain")) && hitDown.collider != null)
         {
-            if (hit.collider.CompareTag("Bridge"))
-                terrainPoint._BridgeHitPosition = hit.point;
-            else if (hit.collider.CompareTag("DirtRoad") || hit.collider.CompareTag("AsphaltRoad") || hit.collider.CompareTag("RailRoad"))
-                terrainPoint._RoadHitPosition = hit.point;
-            terrainPoint._TerrainUpperType = GetUpperType(hit);
-            terrainPoint._UpperTypeObject = GetUpperTypeObject(hit);
+            if (hitDown.collider.CompareTag("Bridge"))
+            {
+                terrainPoint._BridgeHitPosition = hitDown.point;
+                terrainPoint._Normal = hitDown.normal;
+            }
+            else if (hitDown.collider.CompareTag("DirtRoad") || hitDown.collider.CompareTag("AsphaltRoad") || hitDown.collider.CompareTag("RailRoad"))
+                terrainPoint._RoadHitPosition = hitDown.point;
+            terrainPoint._TerrainUpperType = GetUpperType(hitDown);
+            terrainPoint._UpperTypeObject = GetUpperTypeObject(hitDown);
         }
         return terrainPoint;
     }

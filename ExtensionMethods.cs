@@ -1,10 +1,34 @@
 using System.Collections.Generic;
+using System.Linq;
 using UnityEngine;
 using UnityEngine.Splines;
 using UnityEngine.UI;
 
 public static class ExtensionMethods
 {
+    public static List<Vector3> Copy(this List<Vector3> from)
+    {
+        List<Vector3> newList = new List<Vector3>();
+        if (from == null) return newList;
+        foreach (var item in from)
+        {
+            newList.Add(new Vector3(item.x, item.y, item.z));
+        }
+        return newList;
+    }
+    public static List<Goods> Copy(this List<Goods> from)
+    {
+        List<Goods> newList = new List<Goods>();
+        if (from == null) return newList;
+        foreach (var item in from)
+        {
+            Goods newGoods = new Goods();
+            newGoods._Amount = item._Amount;
+            newGoods._Type = item._Type;
+            newList.Add(newGoods);
+        }
+        return newList;
+    }
     public static T GetSquadThisType<T>(this List<Squad> squads) where T : Squad
     {
         for (int i = 0; i < squads.Count; i++)
@@ -119,30 +143,103 @@ public static class ExtensionMethods
             spline.SetKnot(i, knot);
         }
     }
-}
-
-
-
-/*
-ArrangeOrderGhostForPlayer()
-if (!isPressingShift || executerObject.GetComponent<Unit>()._TargetPositions.Count == 0)
-{
-    executerObject.transform.Find("PotentialRouteGhost").GetComponent<LineRenderer>().positionCount = 2;
-
-    TerrainController._Instance.ArrangeMergingLineRenderer(executerObject.transform.Find("PotentialRouteGhost").GetComponent<LineRenderer>(), firstPos.Value, secondPos.Value);
-    //executerObject.transform.Find("PotentialRouteGhost").GetComponent<LineRenderer>().SetPosition(0, firstPos.Value);
-    //executerObject.transform.Find("PotentialRouteGhost").GetComponent<LineRenderer>().SetPosition(1, secondPos.Value);
-}
-else
-{
-    executerObject.transform.Find("PotentialRouteGhost").GetComponent<LineRenderer>().positionCount = executerObject.transform.Find("CurrentRouteGhost").GetComponent<LineRenderer>().positionCount + 1;
-
-    for (int i = 0; i < executerObject.transform.Find("CurrentRouteGhost").GetComponent<LineRenderer>().positionCount; i++)
+    public static Vector3[] GetPointsInCircle(int pointCount, float radius)
     {
-        executerObject.transform.Find("PotentialRouteGhost").GetComponent<LineRenderer>().SetPosition(i, executerObject.transform.Find("CurrentRouteGhost").GetComponent<LineRenderer>().GetPosition(i));
+        Vector3[] points = new Vector3[pointCount];
+
+        if (pointCount <= 0)
+            return points;
+
+        if (pointCount == 1)
+        {
+            points[0] = Vector3.zero;
+            return points;
+        }
+
+        float angleStep = 360f / pointCount;
+
+        for (int i = 0; i < pointCount; i++)
+        {
+            float angle = angleStep * i * Mathf.Deg2Rad;
+            float x = Mathf.Cos(angle) * radius;
+            float z = Mathf.Sin(angle) * radius;
+
+            points[i] = new Vector3(x, 0, z);
+        }
+
+        return points;
     }
-    executerObject.transform.Find("PotentialRouteGhost").GetComponent<LineRenderer>().SetPosition(executerObject.transform.Find("PotentialRouteGhost").GetComponent<LineRenderer>().positionCount - 1, secondPos.Value + Vector3.up * 10f);
+
+
+    public static float GetLowestSquadSpeed(this List<Squad> squads)
+    {
+        float lowest = float.MaxValue;
+        foreach (var squad in squads)
+        {
+            if (squad._Speed < lowest)
+                lowest = squad._Speed;
+        }
+        return lowest;
+    }
+    public static int GetTotalAmountOfType<T>(this List<Squad> squads) where T : Squad
+    {
+        return squads
+        .Where(u => u is T)
+        .Sum(u => u._Amount);
+    }
+    public static bool IsOnlyThisSquadType(this List<Squad> squads, System.Type type)
+    {
+        foreach (var squad in squads)
+        {
+            if (squad.GetType() == type)
+                continue;
+            else
+                return false;
+        }
+        return true;
+    }
+    public static bool IsAllSquadsSameType(this List<Squad> squads)
+    {
+        if (squads == null || squads.Count == 0) return false;
+
+        System.Type firstType = squads[0].GetType();
+        return squads.IsOnlyThisSquadType(firstType);
+    }
+    public static bool IsSplitPossibleOnAny(this List<Squad> squads)
+    {
+        foreach (Squad squad in squads)
+        {
+            if (GameInputController._Instance.IsSplitPossible(squad._AttachedUnit))
+                return true;
+        }
+        return false;
+    }
+    public static List<Squad> GetAllSquadsCombinedNumbers(this List<Squad> squads)
+    {
+        List<Squad> groupedSquads = new List<Squad>();
+
+        foreach (var squad in squads)
+        {
+            bool merged = false;
+
+            foreach (var groupedSquad in groupedSquads)
+            {
+                if (groupedSquad.GetType() == squad.GetType())
+                {
+                    groupedSquad._Amount += squad._Amount;
+                    merged = true;
+                    break;
+                }
+            }
+
+            if (!merged)
+            {
+                Squad clone = (Squad)System.Activator.CreateInstance(squad.GetType());
+                clone._Amount = squad._Amount;
+                groupedSquads.Add(clone);
+            }
+        }
+
+        return groupedSquads;
+    }
 }
-
-
-*/

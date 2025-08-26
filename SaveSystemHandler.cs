@@ -77,6 +77,11 @@ public class SaveSystemHandler : MonoBehaviour
             {
                 foreach (Transform carryingUnit in landUnit.transform.Find("CarryingUnits"))
                 {
+                    if (carryingUnit.GetComponent<Unit>()._IsCarryingWithTruck)
+                    {
+                        //
+                    }
+
                     if (carryingUnit.GetComponent<Unit>()._IsNaval)
                         data._CarryingNavalUnits.Add(carryingUnit.GetComponent<Unit>().ToData());
                     else
@@ -93,6 +98,11 @@ public class SaveSystemHandler : MonoBehaviour
             {
                 foreach (Transform carryingUnit in navalUnit.transform.Find("CarryingUnits"))
                 {
+                    if (carryingUnit.GetComponent<Unit>()._IsCarryingWithTruck)
+                    {
+                        //
+                    }
+
                     if (carryingUnit.GetComponent<Unit>()._IsNaval)
                         data._CarryingNavalUnits.Add(carryingUnit.GetComponent<Unit>().ToData());
                     else
@@ -190,6 +200,8 @@ public class SaveSystemHandler : MonoBehaviour
             navalUnit.tag = "Untagged";
             Destroy(navalUnit);
         }
+
+        GameManager._Instance._FriendlyUnitColliders.Clear();
 
         for (int i = 0; i < data._LandUnits.Count; i++)
         {

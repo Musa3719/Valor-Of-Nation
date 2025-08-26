@@ -44,6 +44,13 @@ public class Localization : MonoBehaviour
     }
     public void SetLanguage(int number)
     {
+        if (GameObject.FindGameObjectWithTag("UI").transform.Find("InitialLanguageSelection").gameObject.activeSelf)
+        {
+            PlayerPrefs.SetInt("LanguageSelected", 1);
+            GameObject.FindGameObjectWithTag("UI").transform.Find("MainMenu").gameObject.SetActive(true);
+            GameObject.FindGameObjectWithTag("UI").transform.Find("InitialLanguageSelection").gameObject.SetActive(false);
+        }
+
         _ActiveLanguage = (Language)number;
         PlayerPrefs.SetInt("Language", number);
         LocalizeTexts();

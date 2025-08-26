@@ -17,7 +17,7 @@ public class RoadBuilder : MonoBehaviour
 
     public float _SnapDistance = 20f;
     private float _maxRoadMagnitude = 1000f;
-    private float _heightOffset = 1f;
+    private float _heightOffset = 1.25f;
 
     private void Awake()
     {
@@ -25,8 +25,8 @@ public class RoadBuilder : MonoBehaviour
         _dirtContainer = GameObject.Find("RoadSystemDirt").transform;
         _asphaltContainer = GameObject.Find("RoadSystemAsphalt").transform;
         _railContainer = GameObject.Find("RoadSystemRail").transform;
-        _RoadPointGhost = GameObject.Find("RoadPointGhost");
-        _RoadGhost = GameObject.Find("RoadGhost");
+        _RoadPointGhost = GameObject.Find("RoadSystem").transform.Find("RoadPointGhost").gameObject;
+        _RoadGhost = GameObject.Find("RoadSystem").transform.Find("RoadGhost").gameObject;
     }
     private void Start()
     {
@@ -38,19 +38,17 @@ public class RoadBuilder : MonoBehaviour
     public void UpdateRoadGhost(Vector3 firstPos, Vector3 secondPos, TerrainPoint point)
     {
         _RoadGhost.SetActive(true);
-        //_RoadGhost.GetComponent<LineRenderer>().SetPosition(0, firstPos);
-        //_RoadGhost.GetComponent<LineRenderer>().SetPosition(1, secondPos);
-        TerrainController._Instance.ArrangeMergingLineRenderer(_RoadGhost.GetComponent<LineRenderer>(), firstPos, secondPos);
+        TerrainController._Instance.ArrangeMergingLineRenderer(_RoadGhost.GetComponent<LineRenderer>(), firstPos, secondPos, -Vector3.up, upOffset: 3.25f);
 
         if (TerrainController._Instance.CanPlaceConstruction(point))
         {
             GameManager._Instance._RoadCannotPlaceText.SetActive(false);
-            _RoadGhost.GetComponent<LineRenderer>().material = TerrainController._Instance._RoadWhiteGhostMat;
+            _RoadGhost.GetComponent<LineRenderer>().colorGradient = GameManager._Instance._WhiteGradientForPotentialRouteOrRoad; ;
         }
         else
         {
             GameManager._Instance._RoadCannotPlaceText.SetActive(true);
-            _RoadGhost.GetComponent<LineRenderer>().material = TerrainController._Instance._RoadRedGhostMat;
+            _RoadGhost.GetComponent<LineRenderer>().colorGradient = GameManager._Instance._RedGradientForPotentialRouteOrRoad;
         }
     }
 
@@ -90,7 +88,7 @@ public class RoadBuilder : MonoBehaviour
         {
             Vector3 worldPos = meshTransform.TransformPoint(vertices[i]);
 
-            float terrainHeight = TerrainController._Instance.GetTerrainHeightAtPosition(worldPos, 300f) + UnityEngine.Random.Range(-0.01f, 0.01f);
+            float terrainHeight = TerrainController._Instance.GetTerrainHeightAtPosition(worldPos, 80f) + UnityEngine.Random.Range(-0.01f, 0.01f);
             Vector3 adjustedWorldPos = new Vector3(worldPos.x, terrainHeight + _heightOffset, worldPos.z);
             vertices[i] = meshTransform.InverseTransformPoint(adjustedWorldPos);
 
