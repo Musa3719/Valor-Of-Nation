@@ -12,7 +12,7 @@ public class AirUnitColliderAfterDeath : MonoBehaviour
         {
             _isCollided = true;
 
-            GameManager._Instance.SpawnVFX(GameManager._Instance._GroundExplosionVFXPrefab, transform.Find("Model").GetComponentInChildren<UnitModel>().transform.position, TerrainController._Instance.GetTerrainPointFromObject(transform)._Normal, scale: 4.5f);
+            GameManager._Instance.SpawnVFX(GameManager._Instance._GroundExplosionVFXPrefab, transform.Find("Model").GetComponentInChildren<UnitModel>().transform.position, TerrainController._Instance.GetTerrainPointFromObject(transform)._Normal, scale: 2f);
 
             _Animator.SetBool("IsMoving", false);
             StartCoroutine(MoveSpeedToZero());

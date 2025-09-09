@@ -7,16 +7,23 @@ public abstract class Order
 }
 public class MoveOrder : Order
 {
-    public void ArrangeOrderGhostForPlayer(GameObject executerObject, Vector3? firstPos, Vector3? secondPos, bool isPressingShift, Vector3 groundDirection)
+    public void ArrangeOrderGhostForPlayer(GameObject executerObject, Vector3? firstPos, List<Vector3> otherPositions, bool isPressingShift, Vector3 groundDirection)
     {
         if (executerObject.GetComponent<Unit>() != null)
         {
             if (isPressingShift && executerObject.GetComponent<Unit>()._TargetPositions.Count != 0)
                 firstPos = executerObject.GetComponent<Unit>()._TargetPositions[executerObject.GetComponent<Unit>()._TargetPositions.Count - 1];
-            TerrainController._Instance.ArrangeMergingLineRenderer(executerObject.transform.Find("PotentialRouteGhost").GetComponent<LineRenderer>(), firstPos.Value, secondPos.Value, groundDirection);
+
+            TerrainController._Instance.ArrangeMergingLineRenderer(executerObject.transform.Find("PotentialRouteGhost").GetComponent<LineRenderer>(), firstPos.Value, otherPositions, groundDirection);
+
+            if (!executerObject.GetComponent<Unit>()._IsNaval && !executerObject.GetComponent<Unit>()._IsAir)
+            {
+                TerrainController._Instance.RouteRiverArrangement(executerObject.transform.Find("PotentialRouteGhost").gameObject, otherPositions);
+                TerrainController._Instance.ArrangeMergingLineRenderer(executerObject.transform.Find("PotentialRouteGhost").GetComponent<LineRenderer>(), firstPos.Value, otherPositions, groundDirection);
+            }
 
             bool isNavalUnitTouchingTerrain = executerObject.GetComponent<Unit>()._IsNaval && TerrainController._Instance.IsRouteTouchingLandOrWater(executerObject.transform.Find("PotentialRouteGhost").gameObject, LayerMask.NameToLayer("Terrain"));
-            bool isLandUnitTouchingWater = !executerObject.GetComponent<Unit>()._IsNaval && TerrainController._Instance.IsRouteTouchingLandOrWater(executerObject.transform.Find("PotentialRouteGhost").gameObject, LayerMask.NameToLayer("Water"));
+            bool isLandUnitTouchingWater = !executerObject.GetComponent<Unit>()._IsNaval && TerrainController._Instance.IsRouteTouchingLandOrWater(executerObject.transform.Find("PotentialRouteGhost").gameObject, LayerMask.NameToLayer("Water"), otherPositions);
             if ((isNavalUnitTouchingTerrain || isLandUnitTouchingWater) && !executerObject.GetComponent<Unit>()._IsAir)
                 executerObject.transform.Find("PotentialRouteGhost").GetComponent<LineRenderer>().colorGradient = GameManager._Instance._RedGradientForPotentialRouteOrRoad;
             else
@@ -28,11 +35,15 @@ public class MoveOrder : Order
         if (executerObject.GetComponent<Unit>() != null)
         {
             if (executerObject.GetComponent<Unit>()._IsNaval && TerrainController._Instance.IsRouteTouchingLandOrWater(executerObject.transform.Find("PotentialRouteGhost").gameObject, LayerMask.NameToLayer("Terrain"))) return;
-            if (!executerObject.GetComponent<Unit>()._IsNaval && !executerObject.GetComponent<Unit>()._IsAir && TerrainController._Instance.IsRouteTouchingLandOrWater(executerObject.transform.Find("PotentialRouteGhost").gameObject, LayerMask.NameToLayer("Water"))) return;
+            if (!executerObject.GetComponent<Unit>()._IsNaval && !executerObject.GetComponent<Unit>()._IsAir && TerrainController._Instance.IsRouteTouchingLandOrWater(executerObject.transform.Find("PotentialRouteGhost").gameObject, LayerMask.NameToLayer("Water"), executerObject.GetComponent<Unit>()._PotentialRoutePoints)) return;
 
             if (isClearing)
                 executerObject.GetComponent<Unit>()._TargetPositions.Clear();
-            executerObject.GetComponent<Unit>()._TargetPositions.Add(_OrderPosition);
+
+            foreach (Vector3 potentialRoutePoints in executerObject.GetComponent<Unit>()._PotentialRoutePoints)
+            {
+                executerObject.GetComponent<Unit>()._TargetPositions.Add(potentialRoutePoints);
+            }
         }
     }
 
@@ -146,12 +157,23 @@ public class GetOnShipOrder : Order
         {
             TransportShip transportShipSquad = nearestShip.GetComponent<Unit>()._Squad as TransportShip;
             bool canSquadsGetOnShip = executerObject.GetComponent<Unit>()._CanGetOnAnotherUnit;
-            bool canSquadsFit = transportShipSquad != null ? (transportShipSquad._CarryLimit * transportShipSquad._Amount - transportShipSquad._CurrentCarry) >= executerObject.GetComponent<Unit>()._CarryWeight : false;
+
+            int realWeight = executerObject.GetComponent<Unit>()._CarryWeight;
+            if (executerObject.GetComponent<Unit>()._IsCarryingWithTruck)
+            {
+                if (!GameInputController._Instance.IsEvacuatePossible(executerObject.GetComponent<Unit>())) return;
+                foreach (Transform carryingUnit in executerObject.transform.Find("CarryingUnits"))
+                {
+                    realWeight += carryingUnit.GetComponent<Unit>()._CarryWeight;
+                }
+            }
+            bool canSquadsFit = transportShipSquad != null ? (transportShipSquad._CarryLimit * transportShipSquad._Amount - transportShipSquad._CurrentCarry) >= realWeight : false;
+
             if (nearestShip != null && transportShipSquad != null && canSquadsGetOnShip && canSquadsFit)
             {
                 GameObject oldCarryingObject = nearestShip.transform.Find("CarryingUnits").childCount > 0 ? nearestShip.transform.Find("CarryingUnits").GetChild(0).gameObject : null;
                 usedShip = nearestShip;
-                transportShipSquad._CurrentCarry += executerObject.GetComponent<Unit>()._CarryWeight;
+                transportShipSquad._CurrentCarry += realWeight;
                 GameInputController._Instance.GetCarriedByAnotherUnit(executerObject.GetComponent<Unit>(), nearestShip.GetComponent<Unit>());
                 break;
             }
@@ -166,6 +188,7 @@ public class EvacuateShipOrder : Order
     public void ExecuteOrder(GameObject executerObject)
     {
         List<GameObject> evacuatedUnits = new List<GameObject>();
+        List<Unit> nestedTuckCarryUnitsWillTry = new List<Unit>();
 
         if (executerObject.CompareTag("NavalUnit") && executerObject.transform.Find("CarryingUnits").childCount != 0 && executerObject.GetComponent<Unit>()._Squad is TransportShip)
         {
@@ -181,9 +204,14 @@ public class EvacuateShipOrder : Order
                 {
                     evacuatedUnits.Add(carryingUnit.gameObject);
                     transportShipSquad._CurrentCarry -= carryingUnit.GetComponent<Unit>()._CarryWeight;
-                    GameInputController._Instance.GetOutFromAnotherUnit(carryingUnit.GetComponent<Unit>(), landingPosition, executerObject);
+                    GameInputController._Instance.GetOutFromAnotherUnit(carryingUnit.GetComponent<Unit>(), landingPosition, executerObject, nestedTuckCarryUnitsWillTry: nestedTuckCarryUnitsWillTry);
                 }
             }
+        }
+
+        foreach (Unit nestedCarryUnitTry in nestedTuckCarryUnitsWillTry)
+        {
+            GameInputController._Instance.TryToAttachSquadToTruck(nestedCarryUnitTry._Squad);
         }
 
         if (GameInputController._Instance._SelectedUnits.Count == 0)
@@ -209,12 +237,23 @@ public class GetOnTrainOrder : Order
         {
             Train trainSquad = nearestTrain.GetComponent<Unit>()._Squad as Train;
             bool canSquadsGetOnTrain = executerObject.GetComponent<Unit>()._CanGetOnAnotherUnit;
-            bool canSquadsFit = trainSquad != null ? (trainSquad._CarryLimit * trainSquad._Amount - trainSquad._CurrentCarry) >= executerObject.GetComponent<Unit>()._CarryWeight : false;
+
+            int realWeight = executerObject.GetComponent<Unit>()._CarryWeight;
+            if (executerObject.GetComponent<Unit>()._IsCarryingWithTruck)
+            {
+                if (!GameInputController._Instance.IsEvacuatePossible(executerObject.GetComponent<Unit>())) return;
+                foreach (Transform carryingUnit in executerObject.transform.Find("CarryingUnits"))
+                {
+                    realWeight += carryingUnit.GetComponent<Unit>()._CarryWeight;
+                }
+            }
+            bool canSquadsFit = trainSquad != null ? (trainSquad._CarryLimit * trainSquad._Amount - trainSquad._CurrentCarry) >= realWeight : false;
+
             if (nearestTrain != null && trainSquad != null && canSquadsGetOnTrain && canSquadsFit)
             {
                 GameObject oldCarryingObject = nearestTrain.transform.Find("CarryingUnits").childCount > 0 ? nearestTrain.transform.Find("CarryingUnits").GetChild(0).gameObject : null;
                 usedTrain = nearestTrain;
-                trainSquad._CurrentCarry += executerObject.GetComponent<Unit>()._CarryWeight;
+                trainSquad._CurrentCarry += realWeight;
                 GameInputController._Instance.GetCarriedByAnotherUnit(executerObject.GetComponent<Unit>(), nearestTrain.GetComponent<Unit>());
                 break;
             }
@@ -229,6 +268,7 @@ public class EvacuateTrainOrder : Order
     public void ExecuteOrder(GameObject executerObject)
     {
         List<GameObject> evacuatedUnits = new List<GameObject>();
+        List<Unit> nestedTuckCarryUnitsWillTry = new List<Unit>();
 
         if (executerObject.CompareTag("LandUnit") && executerObject.transform.Find("CarryingUnits").childCount != 0 && executerObject.GetComponent<Unit>()._IsTrain)
         {
@@ -244,9 +284,14 @@ public class EvacuateTrainOrder : Order
                 {
                     evacuatedUnits.Add(carryingUnit.gameObject);
                     trainSquad._CurrentCarry -= carryingUnit.GetComponent<Unit>()._CarryWeight;
-                    GameInputController._Instance.GetOutFromAnotherUnit(carryingUnit.GetComponent<Unit>(), landingPosition, executerObject);
+                    GameInputController._Instance.GetOutFromAnotherUnit(carryingUnit.GetComponent<Unit>(), landingPosition, executerObject, nestedTuckCarryUnitsWillTry: nestedTuckCarryUnitsWillTry);
                 }
             }
+        }
+
+        foreach (Unit nestedCarryUnitTry in nestedTuckCarryUnitsWillTry)
+        {
+            GameInputController._Instance.TryToAttachSquadToTruck(nestedCarryUnitTry._Squad);
         }
 
         if (GameInputController._Instance._SelectedUnits.Count == 0)
@@ -266,25 +311,36 @@ public class GetOnCargoPlaneOrder : Order
         if (executerObject.GetComponent<Unit>()._AttachedToUnitObject != null || executerObject.GetComponent<Unit>()._IsAir || executerObject.GetComponent<Unit>()._IsNaval || executerObject.GetComponent<Unit>()._IsTrain)
             return;
 
-        GameObject usedTrain = null;
+        GameObject usedCargoPlane = null;
         GameObject[] nearestCargoPlanes = GameInputController._Instance.GetNearestCargoPlanes(executerObject.transform);
         foreach (var nearestCargoPlane in nearestCargoPlanes)
         {
             CargoPlane cargoPlaneSquad = nearestCargoPlane.GetComponent<Unit>()._Squad as CargoPlane;
             bool canSquadsGetOnCargoPlane = executerObject.GetComponent<Unit>()._CanGetOnAnotherUnit;
-            bool canSquadsFit = cargoPlaneSquad != null ? (cargoPlaneSquad._CarryLimit * cargoPlaneSquad._Amount - cargoPlaneSquad._CurrentCarry) >= executerObject.GetComponent<Unit>()._CarryWeight : false;
+
+            int realWeight = executerObject.GetComponent<Unit>()._CarryWeight;
+            if (executerObject.GetComponent<Unit>()._IsCarryingWithTruck)
+            {
+                if (!GameInputController._Instance.IsEvacuatePossible(executerObject.GetComponent<Unit>())) return;
+                foreach (Transform carryingUnit in executerObject.transform.Find("CarryingUnits"))
+                {
+                    realWeight += carryingUnit.GetComponent<Unit>()._CarryWeight;
+                }
+            }
+            bool canSquadsFit = cargoPlaneSquad != null ? (cargoPlaneSquad._CarryLimit * cargoPlaneSquad._Amount - cargoPlaneSquad._CurrentCarry) >= realWeight : false;
+
             if (nearestCargoPlane != null && cargoPlaneSquad != null && canSquadsGetOnCargoPlane && canSquadsFit)
             {
                 GameObject oldCarryingObject = nearestCargoPlane.transform.Find("CarryingUnits").childCount > 0 ? nearestCargoPlane.transform.Find("CarryingUnits").GetChild(0).gameObject : null;
-                usedTrain = nearestCargoPlane;
-                cargoPlaneSquad._CurrentCarry += executerObject.GetComponent<Unit>()._CarryWeight;
+                usedCargoPlane = nearestCargoPlane;
+                cargoPlaneSquad._CurrentCarry += realWeight;
                 GameInputController._Instance.GetCarriedByAnotherUnit(executerObject.GetComponent<Unit>(), nearestCargoPlane.GetComponent<Unit>());
                 break;
             }
         }
 
-        if (GameInputController._Instance._SelectedUnits.Count == 0 && usedTrain != null)
-            GameInputController._Instance.SelectUnit(usedTrain);
+        if (GameInputController._Instance._SelectedUnits.Count == 0 && usedCargoPlane != null)
+            GameInputController._Instance.SelectUnit(usedCargoPlane);
     }
 }
 public class EvacuateCargoPlaneOrder : Order
@@ -292,6 +348,7 @@ public class EvacuateCargoPlaneOrder : Order
     public void ExecuteOrder(GameObject executerObject)
     {
         List<GameObject> evacuatedUnits = new List<GameObject>();
+        List<Unit> nestedTuckCarryUnitsWillTry = new List<Unit>();
 
         if (executerObject.CompareTag("LandUnit") && executerObject.transform.Find("CarryingUnits").childCount != 0 && executerObject.GetComponent<Unit>()._Squad is CargoPlane)
         {
@@ -307,9 +364,14 @@ public class EvacuateCargoPlaneOrder : Order
                 {
                     evacuatedUnits.Add(carryingUnit.gameObject);
                     cargoPlaneSquad._CurrentCarry -= carryingUnit.GetComponent<Unit>()._CarryWeight;
-                    GameInputController._Instance.GetOutFromAnotherUnit(carryingUnit.GetComponent<Unit>(), landingPosition, executerObject);
+                    GameInputController._Instance.GetOutFromAnotherUnit(carryingUnit.GetComponent<Unit>(), landingPosition, executerObject, nestedTuckCarryUnitsWillTry: nestedTuckCarryUnitsWillTry);
                 }
             }
+        }
+
+        foreach (Unit nestedCarryUnitTry in nestedTuckCarryUnitsWillTry)
+        {
+            GameInputController._Instance.TryToAttachSquadToTruck(nestedCarryUnitTry._Squad);
         }
 
         if (GameInputController._Instance._SelectedUnits.Count == 0)

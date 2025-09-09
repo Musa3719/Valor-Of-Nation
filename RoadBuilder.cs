@@ -38,7 +38,9 @@ public class RoadBuilder : MonoBehaviour
     public void UpdateRoadGhost(Vector3 firstPos, Vector3 secondPos, TerrainPoint point)
     {
         _RoadGhost.SetActive(true);
-        TerrainController._Instance.ArrangeMergingLineRenderer(_RoadGhost.GetComponent<LineRenderer>(), firstPos, secondPos, -Vector3.up, upOffset: 3.25f);
+        List<Vector3> newList = new List<Vector3>();
+        newList.Add(secondPos);
+        TerrainController._Instance.ArrangeMergingLineRenderer(_RoadGhost.GetComponent<LineRenderer>(), firstPos, newList, -Vector3.up, upOffset: 3.25f);
 
         if (TerrainController._Instance.CanPlaceConstruction(point))
         {

@@ -35,6 +35,7 @@ public class GameManager : MonoBehaviour
     public GameObject _BombExplosionVFXPrefab;
     public GameObject _ArtilleryHitVFXPrefab;
     public GameObject _SparkVFXPrefab;
+    public GameObject _FireSmokeVFXPrefab;
 
     public Sprite _InfantryAttachedToTrucksIcon;
     public Sprite _ArtilleryTowedIcon;
@@ -90,10 +91,16 @@ public class GameManager : MonoBehaviour
     private Material _riverMat;
     private Material _waterMat;
 
+    public Color _EnemyColor { get; private set; }
+    public Color _FriendlyColor { get; private set; }
+
     private Coroutine _slowTimeCoroutine;
 
     private void Awake()
     {
+        _EnemyColor = new Color(180 / 255f, 240f / 255f, 25f / 255f, 0.7f);
+        _FriendlyColor = new Color(130 / 255f, 190f / 255f, 110f / 255f, 0.9f);
+
         _DamageMatrix = new float[][]//inf, truck, train, tank, apc, arty, rocketarty, at, aa, jet, heli, cargoplane, cruiser, destroyer, corvette, transportship 
         {
             new float[] { 1f, 1f, 1f, 1f, 1f, 1f, 1f, 1f, 1f, 1f, 1f, 1f, 1f, 1f, 1f, 1f },
@@ -247,13 +254,20 @@ public class GameManager : MonoBehaviour
             _MapState.LateUpdate();
     }
 
-    public void SpawnVFX(GameObject prefab, Vector3 pos, Vector3 upwards, float scale = 1f, float destroyTime = 1.5f)
+    public void SpawnVFX(GameObject prefab, Vector3 pos, Vector3 upwards, float scale = 1f, float destroyTime = 1.5f, bool isInfantry = false)
     {
         GameObject newObj = Instantiate(prefab, pos, Quaternion.identity);
         newObj.transform.localScale *= scale;
         newObj.transform.up = upwards;
+
         if (newObj.GetComponent<VisualEffect>() != null)
             newObj.GetComponent<VisualEffect>().Play();
+        if(isInfantry&&newObj.transform.Find("Particles")!=null && newObj.transform.Find("BrightHold") != null)
+        {
+            newObj.transform.Find("Particles").GetComponent<ParticleSystem>().startColor = new Color(70f / 255f, 6f / 255f, 6f / 255f);
+            newObj.transform.Find("BrightHold").GetComponent<ParticleSystem>().startColor = new Color(70f / 255f, 6f / 255f, 6f / 255f);
+        }
+
         Destroy(newObj, destroyTime);
     }
     public GameObject CreateUnit(Vector3 position, bool isNaval, bool isEnemy = false, Squad squad = null)

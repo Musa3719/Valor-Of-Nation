@@ -3,6 +3,7 @@ using UnityEngine;
 
 public class BridgeUnitController : MonoBehaviour
 {
+    public RiverController _AttachedRiver;
     public List<Collider> _UnitColliders;
 
     private void Start()

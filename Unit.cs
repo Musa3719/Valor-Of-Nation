@@ -15,14 +15,15 @@ public class Unit : MonoBehaviour
     public Storage _Storage;
     public Squad _Squad;
 
-    public bool _IsCarryingUnit => (_Squad is ICarryUnit) && (_Squad as ICarryUnit)._CurrentCarry != 0;
+    public bool _IsCarryingBigUnit => (_Squad is ICarryBigUnit) && (_Squad as ICarryBigUnit)._CurrentCarry != 0;
     public bool _IsCarryingWithTruck => (_Squad is Truck) && ((_Squad as Truck)._CurrentManCarry != 0 || (_Squad as Truck)._CurrentTow != 0);
-    public bool _CanCarryAnotherBigUnit => _Squad is ICarryUnit;
+    public bool _CanCarryAnotherBigUnit => _Squad is ICarryBigUnit;
     public bool _CanGetOnAnotherUnit => _Squad is ICarriableUnit;
     public int _CarryWeight => _Squad._Weight;
     public bool _IsCivilian => _Squad._IsCivilian;
     public bool _IsNaval => gameObject.CompareTag("NavalUnit");
     public bool _IsTrain => _Squad is Train;
+    public bool _IsInfantry => _Squad is Infantry;
     public bool _IsAir => _Squad is IAir;
     public float _Speed => _Squad._Speed;
 
@@ -30,14 +31,21 @@ public class Unit : MonoBehaviour
     public Animator _Animator { get; set; }
     public List<Vector3> _TargetPositions { get; private set; }
     public GameObject _AttachedToUnitObject { get; set; }
+    public bool _WasInNestedTruck { get; set; }
 
     public bool _IsDead { get; private set; }
     public List<Transform> _AttackModels { get; set; }
     public Transform _AttackTarget { get; set; }// attack type, other attacking orders and save
 
+    public List<Vector3> _PotentialRoutePoints { get; private set; }
     private List<Vector3> _currentRoutePoints;
 
-    private Coroutine _fireCoroutine;
+    private Coroutine _rocketCoroutine;
+
+    private List<Vector3> _rocketsStartPositions;
+    private List<Quaternion> _rocketsStartRotations;
+    private List<Transform> _rockets;
+    private Transform _rocketParent;
 
     private void Awake()
     {
@@ -49,12 +57,8 @@ public class Unit : MonoBehaviour
         _TargetPositions = new List<Vector3>();
         _Storage = new Storage();
 
+        _PotentialRoutePoints = new List<Vector3>();
         _currentRoutePoints = new List<Vector3>();
-
-        transform.Find("Model").Find("UnitUI").Find("Amount").GetComponent<TextMeshProUGUI>().color = _IsEnemy ? new Color(180 / 255f, 240f / 255f, 25f / 255f, 0.7f) : new Color(130 / 255f, 190f / 255f, 110f / 255f, 0.35f);
-        transform.Find("Model").Find("UnitUI").Find("NameText").GetComponent<TextMeshProUGUI>().color = _IsEnemy ? new Color(180 / 255f, 240f / 255f, 25f / 255f, 0.7f) : new Color(130 / 255f, 190f / 255f, 110f / 255f, 0.9f);
-        if (_IsEnemy)
-            transform.Find("Model").Find("UnitUI").Find("NameText").GetComponent<TextMeshProUGUI>().text = _Name;
 
         if (Time.frameCount == 0)
             CreateSquadForTesting();
@@ -67,13 +71,13 @@ public class Unit : MonoBehaviour
             int random = Random.Range(0, 3);
             if (random == 0)
             {
-                newSquad = new Corvette(this, 1);
+                newSquad = new Cruiser(this, 1);
                 _Squad = newSquad;
             }
             else if (random == 1)
             {
 
-                newSquad = new Cruiser(this, 3);
+                newSquad = new Corvette(this, 3);
                 _Squad = newSquad;
             }
             else if (random == 2)
@@ -87,17 +91,17 @@ public class Unit : MonoBehaviour
             int random = Random.Range(0, 2);
             if (random == 0)
             {
-                newSquad = new AntiAir(this, 50);
+                newSquad = new Truck(this, 50);
                 _Squad = newSquad;
             }
             else if (random == 1)
             {
-                newSquad = new Truck(this, 250);
+                newSquad = new Infantry(this, 100);
                 _Squad = newSquad;
             }
             else if (random == 2)
             {
-                newSquad = new AntiTank(this, 20);
+                newSquad = new Train(this, 20);
                 _Squad = newSquad;
             }
         }
@@ -108,6 +112,9 @@ public class Unit : MonoBehaviour
     }
     private void Update()
     {
+        if (!GameManager._Instance._IsGameStopped && _IsDead)
+            _Rigidbody.linearVelocity = Vector3.Lerp(_Rigidbody.linearVelocity, Vector3.zero, Time.deltaTime * 0.8f);
+
         if (GameManager._Instance._IsGameStopped || _IsDead) return;
 
         if (Input.GetKeyDown(KeyCode.F))
@@ -117,7 +124,7 @@ public class Unit : MonoBehaviour
             Damage damage = new Damage();
             damage._AttackerSquadReconEfficiency = 1f;
             damage._AttackerSquadType = _Squad;
-            damage._AttackerSquadAmount = _Squad._Amount;
+            damage._AttackerSquadAmount = 1000;
             TakeHit(damage);
             //Die();
             return;
@@ -125,8 +132,17 @@ public class Unit : MonoBehaviour
 
         ArrangeCurrentRouteGhost();
 
+        if (transform.Find("Model").GetComponentInChildren<UnitModel>()._MovementVFX != null)
+        {
+            if (_Rigidbody.linearVelocity.magnitude > 2f)
+                transform.Find("Model").GetComponentInChildren<UnitModel>()._MovementVFX.SetBool("IsSpawning", true);
+            else
+                transform.Find("Model").GetComponentInChildren<UnitModel>()._MovementVFX.SetBool("IsSpawning", false);
+        }
+
+
         _Animator.SetBool("IsMoving", _Rigidbody.linearVelocity.magnitude > 0.25f);
-        float speed = (_IsAir && _Rigidbody.linearVelocity.magnitude <= 1f && (IsOnWater() || IsOnCity())) ? (1f / 10f) : (_Rigidbody.linearVelocity.magnitude / 10f);
+        float speed = (_IsAir && _Rigidbody.linearVelocity.magnitude <= 1f) ? (1f / 10f) : (_Rigidbody.linearVelocity.magnitude / 10f);
         _Animator.SetFloat("Speed", speed);
 
         if (_Squad._Amount <= 0)
@@ -174,8 +190,31 @@ public class Unit : MonoBehaviour
     }
     public void UpdateWorldUI()
     {
-        if (transform.Find("Model").Find("UnitUI").Find("Amount").GetComponent<TextMeshProUGUI>().text != "x" + _Squad._Amount.ToString())
-            transform.Find("Model").Find("UnitUI").Find("Amount").GetComponent<TextMeshProUGUI>().text = "x" + _Squad._Amount.ToString();
+        if (_IsEnemy)
+        {
+            if (transform.Find("Model").Find("UnitUI").Find("NameAmountText").GetComponent<TextMeshProUGUI>().color != GameManager._Instance._EnemyColor)
+                transform.Find("Model").Find("UnitUI").Find("NameAmountText").GetComponent<TextMeshProUGUI>().color = GameManager._Instance._EnemyColor;
+            if (transform.Find("Model").Find("UnitUI").Find("NameAmountText").GetComponent<TextMeshProUGUI>().text != _Name + "\nx" + _Squad._Amount.ToString())
+                transform.Find("Model").Find("UnitUI").Find("NameAmountText").GetComponent<TextMeshProUGUI>().text = _Name + "\nx" + _Squad._Amount.ToString();
+        }
+        else
+        {
+            if (transform.Find("Model").Find("UnitUI").Find("NameAmountText").GetComponent<TextMeshProUGUI>().color != GameManager._Instance._FriendlyColor)
+                transform.Find("Model").Find("UnitUI").Find("NameAmountText").GetComponent<TextMeshProUGUI>().color = GameManager._Instance._FriendlyColor;
+
+            if (transform.Find("Model").Find("UnitUI").Find("NameAmountText").GetComponent<TextMeshProUGUI>().text.StartsWith("x"))
+            {
+                if (transform.Find("Model").Find("UnitUI").Find("NameAmountText").GetComponent<TextMeshProUGUI>().text != "x" + _Squad._Amount.ToString())
+                    transform.Find("Model").Find("UnitUI").Find("NameAmountText").GetComponent<TextMeshProUGUI>().text = "x" + _Squad._Amount.ToString();
+            }
+            else
+            {
+                if (transform.Find("Model").Find("UnitUI").Find("NameAmountText").GetComponent<TextMeshProUGUI>().text != _Name + "\nx" + _Squad._Amount.ToString())
+                    transform.Find("Model").Find("UnitUI").Find("NameAmountText").GetComponent<TextMeshProUGUI>().text = _Name + "\nx" + _Squad._Amount.ToString();
+            }
+        }
+        
+
     }
     public void Fire()
     {
@@ -183,9 +222,112 @@ public class Unit : MonoBehaviour
 
         _AttackTarget = GameObject.Find("Boxx").transform;///////////
 
-        //logic
+        //combat logic
+
+        if ((_Squad is RocketArtillery) || (_Squad is Jet))
+            ManageRocketModels(_AttackTarget);
         _Animator.SetTrigger("Fire");
         //vfx and sfx
+    }
+    private void ManageRocketModels(Transform target)
+    {
+        if (_rocketsStartPositions == null)
+        {
+            _rockets = new List<Transform>();
+            if (_Squad is RocketArtillery)
+            {
+                for (int i = 0; i < transform.Find("Model").Find("RocketArtyModel(Clone)").Find("Katyusha").Find("Rockets").childCount; i++)
+                {
+                    _rockets.Add(transform.Find("Model").Find("RocketArtyModel(Clone)").Find("Katyusha").Find("Rockets").GetChild(i));
+                }
+                _rocketParent = transform.Find("Model").Find("RocketArtyModel(Clone)").Find("Katyusha").Find("Rockets");
+            }
+            else if (_Squad is Jet)
+            {
+                for (int i = 0; i < transform.Find("Model").Find("JetModel(Clone)").Find("Jet").Find("Accesories").childCount; i++)
+                {
+                    _rockets.Add(transform.Find("Model").Find("JetModel(Clone)").Find("Jet").Find("Accesories").GetChild(i));
+                }
+                _rocketParent = transform.Find("Model").Find("JetModel(Clone)").Find("Jet").Find("Accesories");
+            }
+
+            _rocketsStartPositions = new List<Vector3>();
+            _rocketsStartRotations = new List<Quaternion>();
+            foreach (Transform rocket in _rockets)
+            {
+                _rocketsStartPositions.Add(rocket.localPosition);
+                _rocketsStartRotations.Add(rocket.localRotation);
+            }
+        }
+
+        GameManager._Instance.CoroutineCall(ref _rocketCoroutine, RocketCoroutine(target), GameManager._Instance);
+    }
+    private int ActiveRocketCount()
+    {
+        if (_rockets == null) return 0;
+        int sum = 0;
+        foreach (Transform rocket in _rockets)
+        {
+            if (rocket.gameObject.activeSelf)
+                sum++;
+        }
+        return sum;
+    }
+    public IEnumerator RocketCoroutine(Transform target)
+    {
+        _Animator.enabled = false;
+
+        for (int i = 0; i < _rockets.Count; i++)
+        {
+            _rockets[i].gameObject.SetActive(true);
+
+            if (_rockets[i].parent == null)
+            {
+                _rockets[i].SetParent(_rocketParent);
+                _rockets[i].localPosition = _rocketsStartPositions[i];
+                _rockets[i].localRotation = _rocketsStartRotations[i];
+            }
+            _rockets[i].SetParent(null);
+
+            if (_rockets[i].GetComponent<Rigidbody>() == null)
+                _rockets[i].gameObject.AddComponent<Rigidbody>();
+        }
+
+        float speed = 60f;
+        float timer = 0f;
+        while (timer < 4f && ActiveRocketCount() > 0)
+        {
+            foreach (Transform rocket in _rockets)
+            {
+                if (rocket.gameObject.activeSelf && (target.position - rocket.position).magnitude < 1f)
+                {
+                    rocket.gameObject.SetActive(false);
+                }
+
+                if (rocket.gameObject.activeSelf)
+                {
+                    if (timer < 0.04f)
+                        rocket.GetComponent<Rigidbody>().linearVelocity = rocket.forward.normalized * speed;
+                    else
+                        rocket.GetComponent<Rigidbody>().linearVelocity = Vector3.Lerp(rocket.GetComponent<Rigidbody>().linearVelocity, (target.position - rocket.position).normalized * speed, Time.deltaTime * GameManager._Instance._GameSpeed * 12f);
+                    rocket.forward = rocket.GetComponent<Rigidbody>().linearVelocity.normalized;
+                }
+            }
+            timer += Time.deltaTime * GameManager._Instance._GameSpeed;
+            yield return null;
+        }
+
+        for (int i = 0; i < _rockets.Count; i++)
+        {
+            _rockets[i].gameObject.SetActive(true);
+            _rockets[i].SetParent(_rocketParent);
+            if (_rockets[i].gameObject.GetComponent<Rigidbody>() != null)
+                Destroy(_rockets[i].gameObject.GetComponent<Rigidbody>());
+            _rockets[i].localPosition = _rocketsStartPositions[i];
+            _rockets[i].localRotation = _rocketsStartRotations[i];
+        }
+
+        _Animator.enabled = true;
     }
 
     public void TakeHit(Damage damage)
@@ -197,16 +339,19 @@ public class Unit : MonoBehaviour
             Die();
             return;
         }
+        UpdateWorldUI();
     }
     public void Die()
     {
         if (_IsDead) return;
+        _Squad._Amount = 0;
 
-        if (_IsCarryingUnit || _IsCarryingWithTruck)
+        if (_IsCarryingBigUnit || _IsCarryingWithTruck)
             ArrangeCarryingsWhenDestroyed();
 
         _IsDead = true;
         _TargetPositions.Clear();
+        RemoveRockets();
         _AttackTarget = null;
         transform.Find("CurrentRouteGhost").gameObject.SetActive(false);
         GameInputController._Instance.DeSelectUnit(gameObject);
@@ -220,17 +365,22 @@ public class Unit : MonoBehaviour
         else
         {
             _Animator.SetTrigger("Die");
-            GameManager._Instance.SpawnVFX(GameManager._Instance._GroundExplosionVFXPrefab, transform.Find("Model").GetComponentInChildren<UnitModel>().transform.position, TerrainController._Instance.GetTerrainPointFromObject(transform)._Normal, scale: 4.5f);
+            if (!_IsInfantry)
+                GameManager._Instance.SpawnVFX(GameManager._Instance._GroundExplosionVFXPrefab, transform.Find("Model").GetComponentInChildren<UnitModel>().transform.position, TerrainController._Instance.GetTerrainPointFromObject(transform)._Normal, scale: 4.5f);
+            else
+                _Animator.applyRootMotion = true;
         }
 
 
         DropStorage();
+        UpdateWorldUI();
         Destroy(gameObject, 20f);
     }
     private void TriggerAirUnitDeathFall()
     {
         _Rigidbody.useGravity = true;
-        _Rigidbody.angularVelocity = new Vector3(40f, 180f, 20f);
+        _Rigidbody.freezeRotation = false;
+        _Rigidbody.angularVelocity = new Vector3(Random.Range(-4.5f, 4.5f), Random.Range(-8f, 8f), Random.Range(-2f, 2f));
         MeshCollider col = _Animator.GetComponentInChildren<MeshRenderer>().gameObject.AddComponent<MeshCollider>();
         col.convex = true;
         gameObject.AddComponent<AirUnitColliderAfterDeath>()._Animator = _Animator;
@@ -241,10 +391,6 @@ public class Unit : MonoBehaviour
         foreach (Transform carrying in transform.Find("CarryingUnits"))
         {
             carrying.GetComponent<Unit>().DropStorage();
-            foreach (Transform carrying2 in carrying.Find("CarryingUnits"))//for nested truck
-            {
-                carrying2.GetComponent<Unit>().DropStorage();
-            }
         }
     }
     public void CreateModel(int squadAmount, Squad squad)
@@ -255,20 +401,8 @@ public class Unit : MonoBehaviour
     }
     public void UpdateModel(int squadAmount)
     {
-        int digitCount = 0;
-        int tempForDigit = squadAmount;
-        while (tempForDigit > 0)
-        {
-            tempForDigit /= 10;
-            digitCount++;
-        }
-
-        float scale = 1f + digitCount * 0.25f;
-        scale /= 2f;
-        transform.Find("Model").localScale = scale * Vector3.one;
-
-        float colorValue = 0.25f + digitCount * 0.15f;
-        ArrangeModelMaterials(transform.Find("Model").gameObject, new Color(colorValue, colorValue, colorValue));
+        float scale = Mathf.Log10(squadAmount * 6.66f + 2f) * 2f / 6f;
+        transform.Find("Model").GetComponentInChildren<UnitModel>().transform.localScale = scale * Vector3.one;
     }
 
     private void ArrangeModelMaterials(GameObject newObj, Color tint)
@@ -302,21 +436,20 @@ public class Unit : MonoBehaviour
     }
     public void RemoveUnit()
     {
+        GameManager._Instance._FriendlyUnitColliders.Remove(transform.Find("RayCollider").GetComponent<Collider>());
         GameInputController._Instance.DeSelectUnit(gameObject);
+        RemoveRockets();
         Destroy(gameObject);
     }
-
-    public void MergeWithAnotherUnit(Unit anotherUnit)
+    private void RemoveRockets()
     {
-        if (_IsEnemy != anotherUnit._IsEnemy) return;
-
-        bool isAdded = AddSquad(anotherUnit._Squad);
-
-        if (!isAdded) return;
-
-        _Storage.AddStorage(anotherUnit._Storage);
-        Destroy(anotherUnit.gameObject);
+        if (_rockets == null) return;
+        foreach (Transform rocket in _rockets)
+        {
+            Destroy(rocket.gameObject);
+        }
     }
+
     public void DropStorage()
     {
         Vector3 pos = transform.position;
@@ -333,17 +466,17 @@ public class Unit : MonoBehaviour
     }
     public int GetCarryingCapacity()
     {
-        if (_Squad is ICarryUnit)
+        if (_Squad is ICarryBigUnit)
         {
-            return (_Squad as ICarryUnit)._CarryLimit * _Squad._Amount;
+            return (_Squad as ICarryBigUnit)._CarryLimit * _Squad._Amount;
         }
         return 0;
     }
     public int GetCurrentCarry()
     {
-        if (_Squad is ICarryUnit)
+        if (_Squad is ICarryBigUnit)
         {
-            return (_Squad as ICarryUnit)._CurrentCarry;
+            return (_Squad as ICarryBigUnit)._CurrentCarry;
         }
         return 0;
     }
@@ -385,28 +518,16 @@ public class Unit : MonoBehaviour
         Vector3 direction = (pos - transform.position).normalized;
         //direction.y = 0f;
         float lerpSpeed = 10f;
-        if (_Rigidbody.linearVelocity.magnitude < 5f)
-        {
-            if (_Squad is Infantry)
-                lerpSpeed = 100f;
-            else
-                lerpSpeed = 2f;
-        }
 
         Vector3 targetVel = Vector3.Lerp(_Rigidbody.linearVelocity, direction * GetUnitSpeed(point), lerpSpeed * Time.deltaTime);
         _Rigidbody.linearVelocity = new Vector3(targetVel.x, 0f, targetVel.z);
+
         float yPosition = (point._BridgeHitPosition != Vector3.zero) ? point._BridgeHitPosition.y + 7f : ((point._RoadHitPosition != Vector3.zero) ? point._RoadHitPosition.y + 3.2f : point._Position.y + 10f);
         if (_IsNaval)
-            yPosition = TerrainController._Instance.GetSeaLevel() - 3.25f;
+            yPosition = TerrainController._Instance.GetSeaLevel() - 3.5f;
         else if (_IsAir)
-        {
             yPosition = TerrainController._Instance.GetSeaLevelOrTerrainHeight(transform.position) + 10f;
-            _Animator.transform.parent.localPosition = new Vector3(_Animator.transform.parent.localPosition.x, Mathf.Lerp(_Animator.transform.parent.localPosition.y, (_Rigidbody.linearVelocity.magnitude > 1f || IsOnWater() || IsOnCity()) ? 1f : 0.2f, Time.deltaTime * 0.5f), _Animator.transform.parent.localPosition.z);
-            RectTransform rect = transform.Find("Model").Find("UnitUI").Find("Amount").GetComponent<RectTransform>();
-            rect.localPosition = new Vector3(rect.localPosition.x, -5f + _Animator.transform.parent.localPosition.y * 8f, rect.localPosition.z);
-            rect = transform.Find("Model").Find("UnitUI").Find("NameText").GetComponent<RectTransform>();
-            rect.localPosition = new Vector3(rect.localPosition.x, -3f + _Animator.transform.parent.localPosition.y * 8f, rect.localPosition.z);
-        }
+
         _Rigidbody.position = new Vector3(_Rigidbody.position.x, yPosition, _Rigidbody.position.z);
     }
     private void ArrangeRotation(Vector3 normal)
@@ -459,6 +580,7 @@ public class Unit : MonoBehaviour
     {
         return new UnitData
         {
+            _WasInNestedTruck = _WasInNestedTruck,
             _TargetPositions = _TargetPositions.Copy(),
             _Velocity = _Rigidbody.linearVelocity,
             _StoredGoods = _Storage._StoredGoods.Copy(),
@@ -473,10 +595,12 @@ public class Unit : MonoBehaviour
     }
     public void LoadFromData(UnitData data)
     {
+        _WasInNestedTruck = data._WasInNestedTruck;
         _Rigidbody.linearVelocity = data._Velocity;
         _TargetPositions = data._TargetPositions;
         _Storage._StoredGoods = data._StoredGoods;
         _Squad = data._Squad;
+        _Squad._AttachedUnit = this;
         _IsEnemy = data._IsEnemy;
         _UnitIndex = data._UnitIndex;
         _Name = data._Name;
@@ -488,6 +612,13 @@ public class Unit : MonoBehaviour
         if (data._AttachedToUnitObjectIndex != -1)
         {
             _AttachedToUnitObject = GetUnitObjectFromIndex(data._AttachedToUnitObjectIndex);
+            if (_AttachedToUnitObject.GetComponent<Unit>()._Squad is Truck)
+            {
+                if (_Squad is Infantry) (_Squad as Infantry)._AttachedTruck = _AttachedToUnitObject.GetComponent<Unit>()._Squad as Truck;
+                else if (_Squad is AntiTank) (_Squad as AntiTank)._TowedTo = _AttachedToUnitObject.GetComponent<Unit>()._Squad as Truck;
+                else if (_Squad is AntiAir) (_Squad as AntiAir)._TowedTo = _AttachedToUnitObject.GetComponent<Unit>()._Squad as Truck;
+                else if (_Squad is Artillery) (_Squad as Artillery)._TowedTo = _AttachedToUnitObject.GetComponent<Unit>()._Squad as Truck;
+            }
             GetComponent<Rigidbody>().constraints = RigidbodyConstraints.FreezeAll;
             transform.SetParent(_AttachedToUnitObject.transform.Find("CarryingUnits"));
             transform.position = _AttachedToUnitObject.transform.position;
@@ -523,6 +654,7 @@ public class UnitData
 
     //extras for data
     public int _AttachedToUnitObjectIndex;
+    public bool _WasInNestedTruck;
 
     public bool _IsNaval;
 
@@ -536,7 +668,7 @@ public interface ISquadInterfaces
 {
 
 }
-public interface ICarryUnit : ISquadInterfaces
+public interface ICarryBigUnit : ISquadInterfaces
 {
     public int _CarryLimit { get; set; }
     public int _CurrentCarry { get; set; }
@@ -619,6 +751,7 @@ public class Infantry : Squad, ICarriableUnit
         if (unit._Animator == null)
             unit.CreateModel(_Amount, this);
 
+        unit._Animator.speed = 2f;
         unit._Animator.SetLayerWeight(1, 0f);
         unit._Animator.SetLayerWeight(2, 1f);
         unit._Animator.SetBool("IsInf", true);
@@ -679,7 +812,7 @@ public class Truck : Squad, IWheel, ICarriableUnit
         _Amount += squadValuesToAdd._Amount;
     }
 }
-public class Train : Squad, ITrain, ICarryUnit
+public class Train : Squad, ITrain, ICarryBigUnit
 {
     public override string _DisplayName => Localization._Instance._UI[26];
     public override Sprite _Icon => GameManager._Instance._UnitTypeIcons[2];
@@ -947,6 +1080,9 @@ public class Jet : Squad, IAir
         overrideController["Inf_Fire"] = GameManager._Instance._JetClips[2];
         overrideController["Inf_Die"] = GameManager._Instance._JetClips[3];
         unit._Animator.runtimeAnimatorController = overrideController;
+
+        RectTransform rect = unit.transform.Find("Model").Find("UnitUI").Find("NameAmountText").GetComponent<RectTransform>();
+        rect.localPosition = new Vector3(rect.localPosition.x, 4f, rect.localPosition.z);
     }
     public override Squad CreateNewSquadObject(Unit attachedUnit)
     {
@@ -984,6 +1120,9 @@ public class Helicopter : Squad, IAir
         overrideController["Inf_Fire"] = GameManager._Instance._HeliClips[2];
         overrideController["Inf_Die"] = GameManager._Instance._HeliClips[3];
         unit._Animator.runtimeAnimatorController = overrideController;
+
+        RectTransform rect = unit.transform.Find("Model").Find("UnitUI").Find("NameAmountText").GetComponent<RectTransform>();
+        rect.localPosition = new Vector3(rect.localPosition.x, 4f, rect.localPosition.z);
     }
     public override Squad CreateNewSquadObject(Unit attachedUnit)
     {
@@ -995,7 +1134,7 @@ public class Helicopter : Squad, IAir
         _Amount += squadValuesToAdd._Amount;
     }
 }
-public class CargoPlane : Squad, IAir, ICarryUnit
+public class CargoPlane : Squad, IAir, ICarryBigUnit
 {
     public override string _DisplayName => Localization._Instance._UI[38];
     public override Sprite _Icon => GameManager._Instance._UnitTypeIcons[11];
@@ -1026,6 +1165,9 @@ public class CargoPlane : Squad, IAir, ICarryUnit
         unit._Animator.runtimeAnimatorController = overrideController;
 
         _CarryLimit = 50;
+
+        RectTransform rect = unit.transform.Find("Model").Find("UnitUI").Find("NameAmountText").GetComponent<RectTransform>();
+        rect.localPosition = new Vector3(rect.localPosition.x, 4f, rect.localPosition.z);
     }
     public override Squad CreateNewSquadObject(Unit attachedUnit)
     {
@@ -1154,7 +1296,7 @@ public class Corvette : Squad, INavy
     }
 }
 
-public class TransportShip : Squad, INavy, ICarryUnit
+public class TransportShip : Squad, INavy, ICarryBigUnit
 {
     public override string _DisplayName => Localization._Instance._UI[31];
     public override Sprite _Icon => GameManager._Instance._UnitTypeIcons[15];

@@ -29,6 +29,7 @@ public class SaveSystemHandler : MonoBehaviour
             _LastCreatedUnitIndex = GameManager._Instance._LastCreatedUnitIndex,
             _BridgePositions = new List<Vector3>(),
             _BridgeRotations = new List<Vector3>(),
+            _BridgeAttachedRiverNames = new List<string>(),
             _DirtRoads = new List<RoadSplineData>(),
             _AsphaltRoads = new List<RoadSplineData>(),
             _RailRoads = new List<RoadSplineData>(),
@@ -44,6 +45,7 @@ public class SaveSystemHandler : MonoBehaviour
         {
             data._BridgePositions.Add(bridge.transform.position);
             data._BridgeRotations.Add(bridge.transform.localEulerAngles);
+            data._BridgeAttachedRiverNames.Add(bridge.GetComponent<BridgeUnitController>()._AttachedRiver.name);
         }
         foreach (var dirtRoad in GameObject.FindGameObjectsWithTag("DirtRoad"))
         {
@@ -77,11 +79,6 @@ public class SaveSystemHandler : MonoBehaviour
             {
                 foreach (Transform carryingUnit in landUnit.transform.Find("CarryingUnits"))
                 {
-                    if (carryingUnit.GetComponent<Unit>()._IsCarryingWithTruck)
-                    {
-                        //
-                    }
-
                     if (carryingUnit.GetComponent<Unit>()._IsNaval)
                         data._CarryingNavalUnits.Add(carryingUnit.GetComponent<Unit>().ToData());
                     else
@@ -98,11 +95,6 @@ public class SaveSystemHandler : MonoBehaviour
             {
                 foreach (Transform carryingUnit in navalUnit.transform.Find("CarryingUnits"))
                 {
-                    if (carryingUnit.GetComponent<Unit>()._IsCarryingWithTruck)
-                    {
-                        //
-                    }
-
                     if (carryingUnit.GetComponent<Unit>()._IsNaval)
                         data._CarryingNavalUnits.Add(carryingUnit.GetComponent<Unit>().ToData());
                     else
@@ -151,9 +143,10 @@ public class SaveSystemHandler : MonoBehaviour
         //load game data
         for (int i = 0; i < data._BridgePositions.Count; i++)
         {
-            GameObject newRoad = Instantiate(TerrainController._Instance._BridgePrefab, data._BridgePositions[i], Quaternion.identity);
-            newRoad.transform.localEulerAngles = data._BridgeRotations[i];
-            newRoad.transform.SetParent(GameObject.Find("Bridges").transform);
+            GameObject newBridge = Instantiate(TerrainController._Instance._BridgePrefab, data._BridgePositions[i], Quaternion.identity);
+            newBridge.transform.localEulerAngles = data._BridgeRotations[i];
+            newBridge.transform.SetParent(GameObject.Find("Bridges").transform);
+            newBridge.GetComponent<BridgeUnitController>()._AttachedRiver= TerrainController._Instance.NameToRiverController(data._BridgeAttachedRiverNames[i]);
         }
 
         GameObject container = GameObject.Find("RoadSystemDirt");
@@ -287,6 +280,7 @@ public class GameData
 
     public List<Vector3> _BridgePositions;
     public List<Vector3> _BridgeRotations;
+    public List<string> _BridgeAttachedRiverNames;
 
     public List<RoadSplineData> _DirtRoads;
     public List<RoadSplineData> _AsphaltRoads;

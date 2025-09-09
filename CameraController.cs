@@ -129,7 +129,7 @@ public class TacticalMapState : MapState
             
             Quaternion rot = Quaternion.AngleAxis(-input.x * 140f * Time.deltaTime, Vector3.up);
             _panOffset = rot * _panOffset;
-            _panOffset.y -= input.y * Time.deltaTime * 2.5f;
+            _panOffset.y += CameraController._Instance._ZoomInput.y * Time.deltaTime * 4f;
             _panOffset.y = Mathf.Clamp(_panOffset.y, -0.8f, 0.8f);
             _panOffset = _panOffset.normalized;
         }
@@ -141,7 +141,7 @@ public class TacticalMapState : MapState
 
             if (_PanObj == null)
             {
-                if (CameraController._Instance._ZoomInput.y == 1f && CameraController._Instance._TargetZoom > 20f)
+                if (CameraController._Instance._ZoomInput.y == 1f && CameraController._Instance._TargetZoom > 25f)
                 {
                     CameraController._Instance._TargetZoom -= _zoomAmount * (Mathf.Clamp(CameraController._Instance._TargetZoom, 37.5f, 500f) / 400f);
                 }
@@ -152,10 +152,8 @@ public class TacticalMapState : MapState
             }
             else
             {
-                if (CameraController._Instance._ZoomInput.y == 1f)
-                    _panDistance -= 2f;
-                else if (CameraController._Instance._ZoomInput.y == -1f)
-                    _panDistance += 2f;
+                Vector2 input = GameManager._Instance._InputActions.FindAction("Move").ReadValue<Vector2>();
+                _panDistance -= input.y * Time.deltaTime * 30f;
                 _panDistance = Mathf.Clamp(_panDistance, 10f, 30f);
             }
 
@@ -176,7 +174,7 @@ public class TacticalMapState : MapState
         float targetXAngle = CameraController._Instance._TargetXAngle + CameraController._Instance._InputXOffset;
         CameraController._Instance.transform.localPosition += Time.deltaTime * CameraController._Instance._MoveSpeed * 6f;
         if (_PanObj == null)
-            CameraController._Instance.transform.localPosition = new Vector3(CameraController._Instance.transform.localPosition.x, Mathf.Lerp(CameraController._Instance.transform.localPosition.y, CameraController._Instance._TargetZoom, Time.deltaTime * 5f), CameraController._Instance.transform.localPosition.z);
+            CameraController._Instance.transform.localPosition = new Vector3(CameraController._Instance.transform.localPosition.x, Mathf.Lerp(CameraController._Instance.transform.localPosition.y, CameraController._Instance._TargetZoom, Time.deltaTime * 3f), CameraController._Instance.transform.localPosition.z);
         CameraController._Instance.transform.localEulerAngles = new Vector3(Mathf.Lerp(CameraController._Instance.transform.localEulerAngles.x, targetXAngle, Time.deltaTime * 5f), CameraController._Instance.transform.localEulerAngles.y, CameraController._Instance.transform.localEulerAngles.z);
         CameraController._Instance.transform.localPosition = new Vector3(Mathf.Clamp(CameraController._Instance.transform.localPosition.x, -16000f, 16000f), Mathf.Clamp(CameraController._Instance.transform.localPosition.y, 10f, float.MaxValue), Mathf.Clamp(CameraController._Instance.transform.localPosition.z, -16000f, 16000f));
     }
@@ -249,7 +247,7 @@ public class StrategicMapState : MapState
 
         float targetXAngle = CameraController._Instance._TargetXAngle + CameraController._Instance._InputXOffset / 2.35f;
         CameraController._Instance.transform.localPosition += Time.deltaTime * CameraController._Instance._MoveSpeed * 30f;
-        CameraController._Instance.transform.localPosition = new Vector3(CameraController._Instance.transform.localPosition.x, Mathf.Lerp(CameraController._Instance.transform.localPosition.y, CameraController._Instance._TargetZoom, Time.deltaTime * 5f), CameraController._Instance.transform.localPosition.z);
+        CameraController._Instance.transform.localPosition = new Vector3(CameraController._Instance.transform.localPosition.x, Mathf.Lerp(CameraController._Instance.transform.localPosition.y, CameraController._Instance._TargetZoom, Time.deltaTime * 3f), CameraController._Instance.transform.localPosition.z);
         CameraController._Instance.transform.localEulerAngles = new Vector3(Mathf.Lerp(CameraController._Instance.transform.localEulerAngles.x, targetXAngle, Time.deltaTime * 5f), CameraController._Instance.transform.localEulerAngles.y, CameraController._Instance.transform.localEulerAngles.z);
         CameraController._Instance.transform.localPosition = new Vector3(Mathf.Clamp(CameraController._Instance.transform.localPosition.x, -16000f, 16000f), CameraController._Instance.transform.localPosition.y, Mathf.Clamp(CameraController._Instance.transform.localPosition.z, -16000f, 16000f));
 

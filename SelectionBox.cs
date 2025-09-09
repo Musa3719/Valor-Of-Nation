@@ -39,10 +39,10 @@ public class SelectionBox : MonoBehaviour
             if (_IsDragging)
             {
                 _IsDragging = false;
-                CloseHovers();
                 SelectUnits();
+                CloseHovers();
             }
-           
+
         }
 
         if (Input.GetMouseButton(0))
@@ -68,6 +68,8 @@ public class SelectionBox : MonoBehaviour
 
         foreach (var col in GameManager._Instance._FriendlyUnitColliders)
         {
+            if (!col.transform.parent.gameObject.activeSelf) continue;
+
             Vector3 screenPos = Camera.main.WorldToScreenPoint(col.transform.position);
             screenPos.y = Screen.height - screenPos.y;
 
@@ -114,8 +116,15 @@ public class SelectionBox : MonoBehaviour
 
         foreach (var col in GameManager._Instance._FriendlyUnitColliders)
         {
+            if (col == null)
+            {
+                Debug.Log("null collider still in the friendly unit colliders!");
+                GameManager._Instance._FriendlyUnitColliders.Remove(col);
+                continue;
+            }
             isVisible = GeometryUtility.TestPlanesAABB(planes, col.bounds);
             if (!isVisible) continue;
+            if (col.transform.parent.GetComponent<Unit>().IsSelected() || !col.transform.parent.gameObject.activeSelf) continue;
 
             screenPos = Camera.main.WorldToScreenPoint(col.transform.position);
             screenPos.y = Screen.height - screenPos.y;
@@ -151,7 +160,7 @@ public class SelectionBox : MonoBehaviour
     {
         foreach (var item in _hoverUnits)
         {
-            if (item != null)
+            if (item != null && item.GetComponent<Unit>() != null && !item.GetComponent<Unit>().IsSelected())
                 GameInputController._Instance.CloseUnitHover(item);
         }
         _hoverUnits.Clear();

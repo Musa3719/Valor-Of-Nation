@@ -9,6 +9,8 @@ public class Damage : MonoBehaviour
     {
         float damage = GameManager._Instance._DamageMatrix[SquadToIndex(_AttackerSquadType)][SquadToIndex(damageTakeSquad)] * _AttackerSquadAmount * _AttackerSquadReconEfficiency;
         damageTakeSquad._Amount -= (int)(damage / damageTakeSquad._HealthForOneAmount);
+        if (Random.Range(0, 101) <= (damage % damageTakeSquad._HealthForOneAmount / damageTakeSquad._HealthForOneAmount * 100))
+            damageTakeSquad._Amount -= 1;
 
         GameObject prefab = null;
         if (_AttackerSquadType is RocketArtillery || _AttackerSquadType is Jet)
@@ -25,7 +27,8 @@ public class Damage : MonoBehaviour
             prefab = GameManager._Instance._ExplosionVFXPrefab;
         }
 
-        GameManager._Instance.SpawnVFX(prefab, damageTakeSquad._AttachedUnit.GetComponentInChildren<UnitModel>().transform.position, TerrainController._Instance.GetTerrainPointFromObject(damageTakeSquad._AttachedUnit.transform)._Normal, scale: damage / 50f);
+        float newScale = Mathf.Log10(damage * 6.66f + 2f) * 2f / 5f;
+        GameManager._Instance.SpawnVFX(prefab, damageTakeSquad._AttachedUnit.GetComponentInChildren<UnitModel>()._MidPoint.position, TerrainController._Instance.GetTerrainPointFromObject(damageTakeSquad._AttachedUnit.transform)._Normal, scale: newScale, isInfantry: damageTakeSquad._AttachedUnit._IsInfantry);
     }
     public int SquadToIndex(Squad squad)
     {

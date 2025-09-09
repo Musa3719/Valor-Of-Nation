@@ -170,34 +170,45 @@ public class TerrainController : MonoBehaviour
             return hit.point.y;
         return 0f;
     }
-    public void ArrangeMergingLineRenderer(LineRenderer lineRenderer, Vector3 start, Vector3 end, Vector3 groundDirection, float maxSegmentLength = 10f, float upOffset = 1.25f)
+    public void ArrangeMergingLineRenderer(LineRenderer lineRenderer, Vector3 start, List<Vector3> otherPositions, Vector3 groundDirection, float maxSegmentLength = 10f, float upOffset = 1.25f)
     {
         if (lineRenderer == null) return;
 
         List<Vector3> adjustedPositions = new List<Vector3>();
-
-        Physics.Raycast(start - groundDirection * 200f, groundDirection, out RaycastHit hit, 400f, GameManager._Instance._TerrainAndWaterLayers);
-        float height = hit.point.y + upOffset;
-        start = new Vector3(hit.point.x, height, hit.point.z);
-        float dist = Vector3.Distance(start, end);
-
-        adjustedPositions.Add(start);
-        if (dist > maxSegmentLength)
+        float height;
+        RaycastHit hit;
+        Vector3 end;
+        float dist;
+        Vector3 newPoint;
+        Vector3 dir;
+        for (int i = 0; i < otherPositions.Count; i++)
         {
-            int numSegments = Mathf.FloorToInt(dist / maxSegmentLength);
-            Vector3 dir = (end - start).normalized;
+            if (i != 0)
+                start = otherPositions[i - 1];
+            end = otherPositions[i];
+            Physics.Raycast(start - groundDirection * 200f, groundDirection, out hit, 400f, GameManager._Instance._TerrainAndWaterLayers);
+            height = hit.point.y + upOffset;
+            start = new Vector3(hit.point.x, height, hit.point.z);
+            dist = Vector3.Distance(start, end);
 
-            for (int s = 1; s <= numSegments; s++)
+            adjustedPositions.Add(start);
+            if (dist > maxSegmentLength)
             {
-                Vector3 newPoint = start + dir * (maxSegmentLength * s);
-                adjustedPositions.Add(newPoint);
+                int numSegments = Mathf.FloorToInt(dist / maxSegmentLength);
+                dir = (end - start).normalized;
+
+                for (int s = 1; s <= numSegments; s++)
+                {
+                    newPoint = start + dir * (maxSegmentLength * s);
+                    adjustedPositions.Add(newPoint);
+                }
             }
+            adjustedPositions.Add(end);
         }
-        adjustedPositions.Add(end);
 
         for (int i = 1; i < adjustedPositions.Count; i++)
         {
-            Physics.Raycast(adjustedPositions[i] + Vector3.up * 200f, -Vector3.up, out hit, 400f, GameManager._Instance._TerrainAndWaterLayers);
+            Physics.Raycast(adjustedPositions[i] + Vector3.up * 300f, -Vector3.up, out hit, 500f, GameManager._Instance._TerrainWaterAndUpperLayers);
             height = hit.point.y + upOffset;
             adjustedPositions[i] = new Vector3(adjustedPositions[i].x, height, adjustedPositions[i].z);
         }
@@ -212,8 +223,8 @@ public class TerrainController : MonoBehaviour
 
         List<Vector3> adjustedPositions = new List<Vector3>();
 
-        Physics.Raycast(points[0] - groundDirection * 200f, groundDirection, out RaycastHit hit, 400f, GameManager._Instance._TerrainAndWaterLayers);
-        float height = hit.point.y + 1f;
+        Physics.Raycast(points[0] - groundDirection * 300f, groundDirection, out RaycastHit hit, 500f, GameManager._Instance._TerrainAndWaterLayers);
+        float height = hit.point.y + 1.25f;
         points[0] = new Vector3(hit.point.x, height, hit.point.z);
 
         adjustedPositions.Add(points[0]);
@@ -239,8 +250,8 @@ public class TerrainController : MonoBehaviour
 
         for (int i = 1; i < adjustedPositions.Count; i++)
         {
-            Physics.Raycast(adjustedPositions[i] + Vector3.up * 200f, -Vector3.up, out hit, 400f, GameManager._Instance._TerrainAndWaterLayers);
-            height = hit.point.y + 1f;
+            Physics.Raycast(adjustedPositions[i] + Vector3.up * 200f, -Vector3.up, out hit, 400f, GameManager._Instance._TerrainWaterAndUpperLayers);
+            height = hit.point.y + 1.25f;
             adjustedPositions[i] = new Vector3(adjustedPositions[i].x, height, adjustedPositions[i].z);
         }
 
@@ -406,6 +417,54 @@ public class TerrainController : MonoBehaviour
                 break;
         }
     }
+    public Vector3 GetMidPointFromRiver(Vector3 riverPos, Vector3 tangent)
+    {
+        Vector3 rotatedTangent = Quaternion.Euler(0f, 90f, 0f) * tangent;
+
+        RaycastHit hit;
+        Vector3 startPoint = riverPos, endPoint = riverPos;
+        Vector3 offset = rotatedTangent;
+        int i = 0;
+        while (true)
+        {
+            Physics.Raycast(Camera.main.transform.position, riverPos + offset - Camera.main.transform.position, out hit, 30000f, LayerMask.GetMask("Water"));
+            if (hit.collider != null && hit.collider.CompareTag("River"))
+            {
+                endPoint = hit.point;
+                offset += rotatedTangent;
+                i++;
+            }
+            else if (i > 200)
+            {
+                Debug.LogError("While take too long...");
+                break;
+            }
+            else
+                break;
+        }
+        i = 0;
+        offset = -rotatedTangent;
+        while (true)
+        {
+            Physics.Raycast(Camera.main.transform.position, riverPos + offset - Camera.main.transform.position, out hit, 30000f, LayerMask.GetMask("Water"));
+            if (hit.collider != null && hit.collider.CompareTag("River"))
+            {
+                startPoint = hit.point;
+                offset -= rotatedTangent;
+                i++;
+            }
+            else if (i > 200)
+            {
+                Debug.LogError("While take too long...");
+                break;
+            }
+            else
+                break;
+        }
+
+        return (startPoint + endPoint) / 2f;
+
+    }
     private void ArrangeBridgeTransformFromRiver(RaycastHit riverHit)
     {
         MeshCollider collider = riverHit.collider as MeshCollider;
@@ -425,52 +484,9 @@ public class TerrainController : MonoBehaviour
         Vector3 worldP2 = collider.transform.TransformPoint(p2);
 
         Vector3 tangent = (worldP1 - worldP0).normalized;
-        Vector3 rotatedTangent = Quaternion.Euler(0f, 90f, 0f) * tangent;
 
-        RaycastHit hit;
-        Vector3 startPoint = riverHit.point, endPoint = riverHit.point;
-        Vector3 offset = rotatedTangent;
-        int i = 0;
-        while (true)
-        {
-            Physics.Raycast(Camera.main.transform.position, riverHit.point + offset - Camera.main.transform.position, out hit, 30000f, LayerMask.GetMask("Water"));
-            if (hit.collider != null && hit.collider.CompareTag("River"))
-            {
-                endPoint = hit.point;
-                offset += rotatedTangent;
-                i++;
-            }
-            else if (i > 200)
-            {
-                Debug.LogError("While take too long...");
-                break;
-            }
-            else
-                break;
-        }
-        i = 0;
-        offset = -rotatedTangent;
-        while (true)
-        {
-            Physics.Raycast(Camera.main.transform.position, riverHit.point + offset - Camera.main.transform.position, out hit, 30000f, LayerMask.GetMask("Water"));
-            if (hit.collider != null && hit.collider.CompareTag("River"))
-            {
-                startPoint = hit.point;
-                offset -= rotatedTangent;
-                i++;
-            }
-            else if (i > 200)
-            {
-                Debug.LogError("While take too long...");
-                break;
-            }
-            else
-                break;
-        }
-
-        Vector3 targetPos = (startPoint + endPoint) / 2f;
+        Vector3 targetPos = GetMidPointFromRiver(riverHit.point, tangent);
         _constructionGhostObject.transform.position = targetPos - Vector3.up * 5f;
-
         if (Vector3.Dot(_constructionGhostObject.transform.forward, tangent) < 0f)
         {
             tangent = -tangent;
@@ -583,11 +599,24 @@ public class TerrainController : MonoBehaviour
         Debug.LogError("Ghost Object Name is incorrect!");
         return false;
     }
+    public RiverController NameToRiverController(string riverName)
+    {
+        GameObject riverParents = GameObject.Find("Rivers");
+        foreach (Transform river in riverParents.transform)
+        {
+            if (river.name == riverName)
+                return river.GetComponent<RiverController>();
+        }
+        return null;
+    }
     private void AddBridge(TerrainPoint terrainPoint)
     {
         if (terrainPoint._TerrainUpperType == TerrainUpperType.None && terrainPoint._TerrainLowerType == TerrainLowerType.River)
         {
-            Instantiate(_BridgePrefab, _constructionGhostObject.transform.position, _constructionGhostObject.transform.rotation).transform.SetParent(GameObject.Find("Bridges").transform);
+            GameObject newBridge = Instantiate(_BridgePrefab, _constructionGhostObject.transform.position, _constructionGhostObject.transform.rotation);
+            newBridge.transform.SetParent(GameObject.Find("Bridges").transform);
+            newBridge.GetComponent<BridgeUnitController>()._AttachedRiver = terrainPoint._River;
+            terrainPoint._River._Bridges.Add(newBridge.transform);
         }
     }
     private void AddRoad(TerrainPoint terrainPoint)
@@ -620,34 +649,54 @@ public class TerrainController : MonoBehaviour
             pos.y = GetTerrainHeightAtPosition(pos, 1000f);
             terrainPoint._Position = pos;
             terrainPoint._Normal = hit.normal;
-            terrainPoint._TerrainLowerType = GetLowerType(hit, out float baseSupplyMultiplier);
+            terrainPoint._TerrainLowerType = GetLowerType(hit, out float baseSupplyMultiplier, terrainPoint);
             terrainPoint._BaseSupplyMultiplier = baseSupplyMultiplier;
             terrainPoint._Temperature = GetTemperature(hit);
             //Debug.Log(terrainPoint._TerrainLowerType + " " + terrainPoint._BaseSupplyMultiplier + " " + terrainPoint._Temperature);
         }
-        if (checkerObj != null && Physics.Raycast(checkerObj.transform.position + Vector3.up * 100f, -Vector3.up, out RaycastHit hitDown, 30000f, LayerMask.GetMask("UpperTerrain")) && hitDown.collider != null)
+
+        if (checkerObj != null)
         {
-            if (hitDown.collider.CompareTag("Bridge"))
+            if (Physics.Raycast(checkerObj.transform.position + Vector3.up * 100f, -Vector3.up, out RaycastHit hitDown, 30000f, LayerMask.GetMask("UpperTerrain")) && hitDown.collider != null)
             {
-                terrainPoint._BridgeHitPosition = hitDown.point;
-                terrainPoint._Normal = hitDown.normal;
+                if (hitDown.collider.CompareTag("Bridge"))
+                {
+                    terrainPoint._BridgeHitPosition = hitDown.point;
+                    terrainPoint._Normal = hitDown.normal;
+                }
+                else if (hitDown.collider.CompareTag("DirtRoad") || hitDown.collider.CompareTag("AsphaltRoad") || hitDown.collider.CompareTag("RailRoad"))
+                    terrainPoint._RoadHitPosition = hitDown.point;
+                terrainPoint._TerrainUpperType = GetUpperType(hitDown);
+                terrainPoint._UpperTypeObject = GetUpperTypeObject(hitDown);
             }
-            else if (hitDown.collider.CompareTag("DirtRoad") || hitDown.collider.CompareTag("AsphaltRoad") || hitDown.collider.CompareTag("RailRoad"))
-                terrainPoint._RoadHitPosition = hitDown.point;
-            terrainPoint._TerrainUpperType = GetUpperType(hitDown);
-            terrainPoint._UpperTypeObject = GetUpperTypeObject(hitDown);
         }
+        else
+        {
+            if (Physics.Raycast(terrainRay, out RaycastHit hitDown2, 30000f, LayerMask.GetMask("UpperTerrain")) && hitDown2.collider != null)
+            {
+                if (hitDown2.collider.CompareTag("Bridge"))
+                {
+                    terrainPoint._BridgeHitPosition = hitDown2.point;
+                    terrainPoint._Normal = hitDown2.normal;
+                }
+                else if (hitDown2.collider.CompareTag("DirtRoad") || hitDown2.collider.CompareTag("AsphaltRoad") || hitDown2.collider.CompareTag("RailRoad"))
+                    terrainPoint._RoadHitPosition = hitDown2.point;
+                terrainPoint._TerrainUpperType = GetUpperType(hitDown2);
+                terrainPoint._UpperTypeObject = GetUpperTypeObject(hitDown2);
+            }
+        }
+
         return terrainPoint;
     }
 
-    private TerrainLowerType GetLowerType(RaycastHit hit, out float baseSupplyMultiplier)
+    private TerrainLowerType GetLowerType(RaycastHit hit, out float baseSupplyMultiplier, TerrainPoint point)
     {
         if (hit.collider != null && (hit.collider.CompareTag("Sea") || hit.collider.CompareTag("Lake") || hit.collider.CompareTag("River")))
         {
             baseSupplyMultiplier = 0f;
             if (hit.collider.CompareTag("Sea")) return TerrainLowerType.Sea;
             else if (hit.collider.CompareTag("Lake")) return TerrainLowerType.Lake;
-            else if (hit.collider.CompareTag("River")) return TerrainLowerType.River;
+            else if (hit.collider.CompareTag("River")) { point._River = hit.collider.GetComponent<RiverController>(); return TerrainLowerType.River; }
             return TerrainLowerType.Sea;
         }
 
@@ -781,6 +830,7 @@ public class TerrainController : MonoBehaviour
                     }
                     break;
                 }
+                terrainPoint._UpperTypeObject.GetComponentInChildren<BridgeUnitController>()._AttachedRiver._Bridges.Remove(terrainPoint._UpperTypeObject.GetComponentInChildren<BridgeUnitController>().transform);
                 _removalToolGhostObject = null;
                 _removalGhostOldMats = null;
                 Destroy(terrainPoint._UpperTypeObject);
@@ -805,29 +855,145 @@ public class TerrainController : MonoBehaviour
         }
     }
 
-    public bool IsRouteTouchingLandOrWater(GameObject GhostObject, int checkLayer)
+    public bool IsRouteTouchingLandOrWater(GameObject GhostObject, int checkLayer, List<Vector3> allTargetPositions = null)
     {
         if (GhostObject == null) return false;
 
-        Vector3 tempPos;
-        RaycastHit hit;
         Vector3 startPos = GhostObject.GetComponent<LineRenderer>().GetPosition(0);
         Vector3 endPos = GhostObject.GetComponent<LineRenderer>().GetPosition(GhostObject.GetComponent<LineRenderer>().positionCount - 1);
+        if (allTargetPositions == null)
+        {
+            if (CheckRouteTouchingCommon(startPos, endPos, checkLayer))
+                return true;
+        }
+        else
+        {
+            for (int i = 0; i < allTargetPositions.Count; i++)
+            {
+                if (i != 0)
+                    startPos = allTargetPositions[i - 1];
+                endPos = allTargetPositions[i];
+                if (CheckRouteTouchingCommon(startPos, endPos, checkLayer))
+                    return true;
+            }
+        }
+
+        return false;
+    }
+    private bool CheckRouteTouchingCommon(Vector3 startPos, Vector3 endPos, int checkLayer)
+    {
+        RaycastHit hit;
+        Vector3 tempPos;
         float lerpValue = 0f;
+        float distance = (endPos - startPos).magnitude;
+        if (distance < 1f) distance = 1f;
+        Physics.Raycast(startPos + Vector3.up * 40f, -Vector3.up, out hit, 60f, GameManager._Instance._TerrainWaterAndUpperLayers);
+        while (lerpValue <= 1f)
+        {
+            tempPos = Vector3.Lerp(startPos, endPos, lerpValue);
+            Physics.Raycast(tempPos + Vector3.up * 40f, -Vector3.up, out hit, 60f, GameManager._Instance._TerrainWaterAndUpperLayers);
+            if (hit.collider != null && hit.collider.gameObject.layer == checkLayer && hit.collider.gameObject.CompareTag("River"))
+                return true;
+            if (hit.collider != null && hit.collider.gameObject.layer == checkLayer && (tempPos - startPos).magnitude > 5f)
+                return true;
+            lerpValue += 10f / distance;
+        }
+        return false;
+    }
+    public void RouteRiverArrangement(GameObject GhostObject, List<Vector3> targetPositionsForUnit)
+    {
+        RaycastHit hit;
+        Vector3 startPos = GhostObject.GetComponent<LineRenderer>().GetPosition(0);
+        Vector3 endPos = targetPositionsForUnit[targetPositionsForUnit.Count - 1];
 
         float distance = (endPos - startPos).magnitude;
         if (distance < 1f) distance = 1f;
-        while (lerpValue < 1f)
+        int layer = GameManager._Instance._TerrainAndWaterLayers;
+        Vector3 bridgeHitPoint = Vector3.zero;
+
+        Physics.Raycast(endPos + Vector3.up * 40f, -Vector3.up, out hit, 60f, GameManager._Instance._TerrainWaterAndUpperLayers);
+        if (hit.collider != null && hit.collider.gameObject.layer == LayerMask.NameToLayer("Water"))
+            return;
+        if (hit.collider != null && hit.collider.CompareTag("Bridge"))
         {
-            tempPos = Vector3.Lerp(startPos, endPos, lerpValue);
-            Physics.Raycast(tempPos + Vector3.up * 100f, -Vector3.up, out hit, 200f, GameManager._Instance._TerrainWaterAndUpperLayers);
-            if (hit.collider != null && hit.collider.gameObject.layer == checkLayer && (tempPos - startPos).magnitude > 5f)
-                return true;
-            if (hit.collider != null && hit.collider.gameObject.CompareTag("River") && (tempPos - startPos).magnitude > 5f)
-                return true;
-            lerpValue += 8f / distance;
+            layer = GameManager._Instance._TerrainWaterAndUpperLayers;
+            bridgeHitPoint = hit.point;
         }
-        return false;
+
+        Vector3 startForCheck, endForCheck;
+        RiverController lastCrossedRiverController = null;
+        int indexForAddingPointToRoute = 0;
+        Vector3 startPosForAddingPos = startPos;
+        for (int j = 0; j < targetPositionsForUnit.Count; j++)
+        {
+            if (j > 100)
+            {
+                Debug.LogError("Too Many J!");
+                break;
+            }
+            if (j != 0)
+                startForCheck = targetPositionsForUnit[j - 1];
+            else
+                startForCheck = startPos;
+            endForCheck = targetPositionsForUnit[j];
+            Debug.Log(j);
+            Vector3 tempPos;
+            float lerpValue = 0f;
+            distance = (endForCheck - startForCheck).magnitude;
+            if (distance < 1f) distance = 1f;
+            int counter = 0;
+            while (lerpValue <= 1f)
+            {
+                tempPos = Vector3.Lerp(startForCheck, endForCheck, lerpValue);
+                Physics.Raycast(tempPos + Vector3.up * 40f, -Vector3.up, out hit, 60f, layer);
+                if (hit.collider != null && hit.collider.gameObject.layer == LayerMask.NameToLayer("Water") && hit.collider.gameObject.CompareTag("River"))
+                {
+                    RiverBlocksRoute(hit.collider.GetComponent<RiverController>(), targetPositionsForUnit, ref indexForAddingPointToRoute, ref startPosForAddingPos, endForCheck, ref lastCrossedRiverController, ref j, bridgeHitPoint);
+                    break;
+                }
+                lerpValue += 10f / distance;
+                counter++;
+                if (counter > 2000)
+                {
+                    Debug.LogError("Infinite While Loop!");
+                    break;
+                }
+            }
+
+        }
+    }
+    private void RiverBlocksRoute(RiverController riverController, List<Vector3> targetPositionsForUnit, ref int indexForAddingPointToRoute, ref Vector3 firstPos, Vector3 secondPos, ref RiverController lastCrossedRiverController, ref int j, Vector3 bridgeHitPoint)
+    {
+        if (riverController == null) return;
+        if (riverController.IsTwoPointsAreInTheSameSide(firstPos, secondPos))
+        {
+            Debug.Log(j + "*");
+            Vector3 midPos = riverController.GetMidPosInTheSameSide(firstPos, (secondPos - firstPos).normalized);
+            //check midpos is viable
+            targetPositionsForUnit.Insert(indexForAddingPointToRoute, midPos);
+            indexForAddingPointToRoute = indexForAddingPointToRoute + 1;
+            firstPos = midPos;
+        }
+        else
+        {
+            if (lastCrossedRiverController == riverController && targetPositionsForUnit.Count > indexForAddingPointToRoute + 2)
+            {
+                Debug.Log(j+"**");
+                indexForAddingPointToRoute = indexForAddingPointToRoute + 2;
+                firstPos = targetPositionsForUnit[indexForAddingPointToRoute - 1];
+            }
+            else if (lastCrossedRiverController != riverController)
+            {
+                Debug.Log(j + "***");
+                Vector3[] crossingPoints = riverController.GetClosestCrossingPoints(firstPos);
+                targetPositionsForUnit.Insert(indexForAddingPointToRoute, bridgeHitPoint == Vector3.zero ? crossingPoints[1] : bridgeHitPoint);
+                targetPositionsForUnit.Insert(indexForAddingPointToRoute, crossingPoints[0]);
+
+                lastCrossedRiverController = riverController;
+                j = -1;
+            }
+
+        }
     }
 
     public Vector3 GetClosestRoadKnot(Vector3 pos)
@@ -987,6 +1153,7 @@ public class TerrainPoint
     public Vector3 _BridgeHitPosition;
     public Vector3 _RoadHitPosition;
     public Vector3 _Normal;
+    public RiverController _River;
     public float _Temperature;
     public float _BaseSupplyMultiplier;
 

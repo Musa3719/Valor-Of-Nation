@@ -54,11 +54,10 @@ public class GameInputController : MonoBehaviour
         if (GameManager._Instance._IsGameStopped) return;
 
         ArrangeSelectedUnits();
+        ArrangeRouteGhost();
         ArrangeCurrentOrderToSelectedUnits();
 
         ArrangeSquadSelectionUI();
-        ArrangeRouteGhost();
-
         ArrangeCityUI();
         ArrangeOrderUIButtons();
 
@@ -123,7 +122,7 @@ public class GameInputController : MonoBehaviour
             if (newSquad == null)
                 newSquad = selectedSquad.CreateNewSquadObject(newUnitComponent);
 
-            if (selectedSquad is ICarryUnit)
+            if (selectedSquad is ICarryBigUnit)
             {
                 List<Transform> carryingUnits = new List<Transform>();
                 foreach (Transform item in selectedSquad._AttachedUnit.transform.Find("CarryingUnits"))
@@ -181,7 +180,7 @@ public class GameInputController : MonoBehaviour
     }
     public void SplitUnitButtonClicked(Unit attachedUnit)
     {
-        if (attachedUnit._Squad is ICarryUnit && (attachedUnit._Squad as ICarryUnit)._CurrentCarry != 0) return;
+        if (attachedUnit._Squad is ICarryBigUnit && (attachedUnit._Squad as ICarryBigUnit)._CurrentCarry != 0) return;
         if (attachedUnit._Squad is Truck && attachedUnit._Squad._AttachedUnit.transform.Find("CarryingUnits").childCount != 0) return;
         int splitAmount = (int)(attachedUnit._Squad._Amount * _SplitPercent);
         if (attachedUnit._Squad._Amount <= 1 || splitAmount < 1 || splitAmount == attachedUnit._Squad._Amount) return;
@@ -212,13 +211,15 @@ public class GameInputController : MonoBehaviour
         //{
         //TryToAttachSquadToTruck(tryToAttachSquad);
         //}
+
+        attachedUnit.UpdateModel(attachedUnit._Squad._Amount);
         newUnitComponent.UpdateModel(newUnitComponent._Squad._Amount);
         UpdateUI();
     }
     private void ArrangeCarryingWhenSplit(Squad selectedSquad, Squad newSquad, Unit newUnitComponent, float splitPercent)
     {
         if (newSquad == null) return;
-        if (newSquad._Amount > 0 && selectedSquad is ICarryUnit && (selectedSquad as ICarryUnit)._CurrentCarry != 0)
+        if (newSquad._Amount > 0 && selectedSquad is ICarryBigUnit && (selectedSquad as ICarryBigUnit)._CurrentCarry != 0)
         {
             int carryTransferAmount = 0;
             List<Transform> carryingUnits = new List<Transform>();
@@ -243,8 +244,8 @@ public class GameInputController : MonoBehaviour
                 carryTransferAmount += newSquadForCarry._Weight;
             }
 
-            (selectedSquad as ICarryUnit)._CurrentCarry -= carryTransferAmount;
-            (newSquad as ICarryUnit)._CurrentCarry += carryTransferAmount;
+            (selectedSquad as ICarryBigUnit)._CurrentCarry -= carryTransferAmount;
+            (newSquad as ICarryBigUnit)._CurrentCarry += carryTransferAmount;
         }
     }
     private void ArrangeDetachFromTruck(Squad selectedSquad, List<Squad> squadsWillTryToAttachTruck, Squad newSquad = null)
@@ -266,58 +267,58 @@ public class GameInputController : MonoBehaviour
                 {
                     if (newSquad != null)
                     {
-                        squadsWillTryToAttachTruck.Add(newSquad);
+                        squadsWillTryToAttachTruck?.Add(newSquad);
                         (selectedSquad as Truck)._CurrentManCarry -= newSquad._Weight;
                     }
 
-                    squadsWillTryToAttachTruck.Add(squad);
+                    squadsWillTryToAttachTruck?.Add(squad);
                     (selectedSquad as Truck)._CurrentManCarry -= squad._Weight;
                     (squad as Infantry)._AttachedTruck = null;
-                    GetOutFromAnotherUnit(squad._AttachedUnit, selectedSquad._AttachedUnit.transform.position, selectedSquad._AttachedUnit.gameObject, false);
+                    GetOutFromAnotherUnit(squad._AttachedUnit, selectedSquad._AttachedUnit.transform.position, selectedSquad._AttachedUnit.gameObject, isDeselecting: false);
                 }
                 else if (squad is Artillery && (squad as Artillery)._TowedTo != null)
                 {
                     if (newSquad != null)
                     {
-                        squadsWillTryToAttachTruck.Add(newSquad);
+                        squadsWillTryToAttachTruck?.Add(newSquad);
                         (selectedSquad as Truck)._CurrentManCarry -= newSquad._Weight;
                     }
 
-                    squadsWillTryToAttachTruck.Add(squad);
+                    squadsWillTryToAttachTruck?.Add(squad);
                     (selectedSquad as Truck)._CurrentManCarry -= squad._Weight;
                     (squad as Artillery)._TowedTo = null;
-                    GetOutFromAnotherUnit(squad._AttachedUnit, selectedSquad._AttachedUnit.transform.position, selectedSquad._AttachedUnit.gameObject, false);
+                    GetOutFromAnotherUnit(squad._AttachedUnit, selectedSquad._AttachedUnit.transform.position, selectedSquad._AttachedUnit.gameObject, isDeselecting: false);
                 }
                 else if (squad is AntiTank && (squad as AntiTank)._TowedTo != null)
                 {
                     if (newSquad != null)
                     {
-                        squadsWillTryToAttachTruck.Add(newSquad);
+                        squadsWillTryToAttachTruck?.Add(newSquad);
                         (selectedSquad as Truck)._CurrentManCarry -= newSquad._Weight;
                     }
 
-                    squadsWillTryToAttachTruck.Add(squad);
+                    squadsWillTryToAttachTruck?.Add(squad);
                     (selectedSquad as Truck)._CurrentManCarry -= squad._Weight;
                     (squad as AntiTank)._TowedTo = null;
-                    GetOutFromAnotherUnit(squad._AttachedUnit, selectedSquad._AttachedUnit.transform.position, selectedSquad._AttachedUnit.gameObject, false);
+                    GetOutFromAnotherUnit(squad._AttachedUnit, selectedSquad._AttachedUnit.transform.position, selectedSquad._AttachedUnit.gameObject, isDeselecting: false);
                 }
                 else if (squad is AntiAir && (squad as AntiAir)._TowedTo != null)
                 {
                     if (newSquad != null)
                     {
-                        squadsWillTryToAttachTruck.Add(newSquad);
+                        squadsWillTryToAttachTruck?.Add(newSquad);
                         (selectedSquad as Truck)._CurrentManCarry -= newSquad._Weight;
                     }
 
-                    squadsWillTryToAttachTruck.Add(squad);
+                    squadsWillTryToAttachTruck?.Add(squad);
                     (selectedSquad as Truck)._CurrentManCarry -= squad._Weight;
                     (squad as AntiAir)._TowedTo = null;
-                    GetOutFromAnotherUnit(squad._AttachedUnit, selectedSquad._AttachedUnit.transform.position, selectedSquad._AttachedUnit.gameObject, false);
+                    GetOutFromAnotherUnit(squad._AttachedUnit, selectedSquad._AttachedUnit.transform.position, selectedSquad._AttachedUnit.gameObject, isDeselecting: false);
                 }
             }
         }
     }
-    private void TryToAttachSquadToTruck(Squad squad)
+    public void TryToAttachSquadToTruck(Squad squad)
     {
         if (squad == null || squad._AttachedUnit == null) return;
 
@@ -410,9 +411,9 @@ public class GameInputController : MonoBehaviour
 
         _lastHoveringObj = null;
         unit.transform.Find("Model").Find("UnitUI").Find("SelectedUI").GetComponent<Image>().color = _SelectedUnitColor;
-        unit.transform.Find("Model").Find("UnitUI").Find("NameText").GetComponent<TextMeshProUGUI>().text = unit.GetComponent<Unit>()._Name;
-        unit.transform.Find("Model").Find("UnitUI").Find("Amount").GetComponent<TextMeshProUGUI>().color = new Color(130 / 255f, 190f / 255f, 110f / 255f, 1f);
-        unit.transform.Find("Model").Find("UnitUI").Find("Amount").GetComponent<TextMeshProUGUI>().fontSize = 1.6f;
+        unit.transform.Find("Model").Find("UnitUI").Find("NameAmountText").GetComponent<TextMeshProUGUI>().text = unit.GetComponent<Unit>()._Name + "\nx" + unit.GetComponent<Unit>()._Squad._Amount;
+        unit.transform.Find("Model").Find("UnitUI").Find("NameAmountText").GetComponent<TextMeshProUGUI>().color = new Color(130 / 255f, 190f / 255f, 110f / 255f, 1f);
+        unit.transform.Find("Model").Find("UnitUI").Find("NameAmountText").GetComponent<TextMeshProUGUI>().fontSize = 1.6f;
 
         if (unit.transform.Find("CurrentRouteGhost").GetComponent<LineRenderer>().colorGradient != GameManager._Instance._SelectedGradientForCurrentRoute)
             unit.transform.Find("CurrentRouteGhost").GetComponent<LineRenderer>().colorGradient = GameManager._Instance._SelectedGradientForCurrentRoute;
@@ -439,10 +440,10 @@ public class GameInputController : MonoBehaviour
             DeSelectSquad(squad);
         }
 
-        unit.transform.Find("Model").Find("UnitUI").Find("NameText").GetComponent<TextMeshProUGUI>().text = "";
         unit.transform.Find("Model").Find("UnitUI").Find("SelectedUI").GetComponent<Image>().color = _NotSelectedUnitColor;
-        unit.transform.Find("Model").Find("UnitUI").Find("Amount").GetComponent<TextMeshProUGUI>().color = new Color(130 / 255f, 190f / 255f, 110f / 255f, 0.35f);
-        unit.transform.Find("Model").Find("UnitUI").Find("Amount").GetComponent<TextMeshProUGUI>().fontSize = 1.2f;
+        unit.transform.Find("Model").Find("UnitUI").Find("NameAmountText").GetComponent<TextMeshProUGUI>().text = "x" + unit.GetComponent<Unit>()._Squad._Amount;
+        unit.transform.Find("Model").Find("UnitUI").Find("NameAmountText").GetComponent<TextMeshProUGUI>().color = new Color(130 / 255f, 190f / 255f, 110f / 255f, 0.35f);
+        unit.transform.Find("Model").Find("UnitUI").Find("NameAmountText").GetComponent<TextMeshProUGUI>().fontSize = 1.2f;
         unit.transform.Find("PotentialRouteGhost").gameObject.SetActive(false);
 
         if (unit.transform.Find("CurrentRouteGhost").GetComponent<LineRenderer>().colorGradient != GameManager._Instance._NotSelectedGradientForCurrentRoute)
@@ -483,8 +484,24 @@ public class GameInputController : MonoBehaviour
         return true;
     }
 
-    public void GetCarriedByAnotherUnit(Unit unit, Unit carrierUnit)
+    public void GetCarriedByAnotherUnit(Unit unit, Unit carrierUnit, bool isNestedCarry = false)
     {
+        if (isNestedCarry)
+            unit._WasInNestedTruck = true;
+        if (unit._IsCarryingWithTruck)
+        {
+            List<Unit> tempList = new List<Unit>();
+            foreach (Transform carryingWithTruck in unit.transform.Find("CarryingUnits"))
+            {
+                tempList.Add(carryingWithTruck.GetComponent<Unit>());
+            }
+            ArrangeDetachFromTruck(unit.GetComponent<Unit>()._Squad, null);
+            foreach (Unit carryingWithTruck in tempList)
+            {
+                GetCarriedByAnotherUnit(carryingWithTruck.GetComponent<Unit>(), carrierUnit, isNestedCarry: true);
+            }
+        }
+
         unit._AttachedToUnitObject = carrierUnit.gameObject;
         unit.GetComponent<Rigidbody>().constraints = RigidbodyConstraints.FreezeAll;
         unit.transform.SetParent(carrierUnit.transform.Find("CarryingUnits"));
@@ -492,15 +509,20 @@ public class GameInputController : MonoBehaviour
         unit.gameObject.SetActive(false);
         DeSelectUnit(unit.gameObject);
     }
-    public void GetOutFromAnotherUnit(Unit unit, Vector3 landingPosition, GameObject executerObject, bool isDeselecting = true)
+    public void GetOutFromAnotherUnit(Unit unit, Vector3 landingPosition, GameObject executerObject, bool isDeselecting = true, List<Unit> nestedTuckCarryUnitsWillTry = null)
     {
-        unit.GetComponent<Unit>()._AttachedToUnitObject = null;
+        unit._AttachedToUnitObject = null;
         unit.GetComponent<Rigidbody>().constraints = RigidbodyConstraints.FreezeRotation;
         unit.transform.parent = null;
         unit.transform.position = landingPosition;
         unit.gameObject.SetActive(true);
         if (isDeselecting)
             DeSelectUnit(executerObject);
+
+        if (nestedTuckCarryUnitsWillTry != null && unit._WasInNestedTruck)
+            nestedTuckCarryUnitsWillTry.Add(unit);
+
+        unit._WasInNestedTruck = false;
     }
 
     private void ArrangeOrderUIButtons()
@@ -670,7 +692,7 @@ public class GameInputController : MonoBehaviour
             }
             UpdateSquadUI(unitUI, refUnit, carryingSquads);
             int squadCount = 1 + carryingSquads.Count;
-            unitUI.GetComponent<RectTransform>().sizeDelta = new Vector2(unitUI.GetComponent<RectTransform>().sizeDelta.x, 50f + squadCount * 30f);
+            unitUI.GetComponent<RectTransform>().sizeDelta = new Vector2(unitUI.GetComponent<RectTransform>().sizeDelta.x, 50f + squadCount * 40f);
 
             unitUI.transform.Find("SelfContent").Find("DeSelectUnitButton").GetComponent<Button>().onClick.RemoveAllListeners();
             unitUI.transform.Find("SelfContent").Find("DeSelectUnitButton").GetComponent<Button>().onClick.AddListener(SoundManager._Instance.PlayButtonSound);
@@ -775,6 +797,10 @@ public class GameInputController : MonoBehaviour
                 squadUI.GetComponent<Image>().color = new Color(0.45f, 0.45f, 1f);
                 squadUI.Find("Icon").GetComponent<Button>().interactable = false;
             }
+            else
+            {
+                squadUI.Find("Icon").GetComponent<Button>().interactable = true;
+            }
 
         }
     }
@@ -804,6 +830,11 @@ public class GameInputController : MonoBehaviour
     }
     private void ArrangeCarryButtonsUI(Transform unitUI, Unit refUnit)
     {
+        if (refUnit._CanCarryAnotherBigUnit)
+            unitUI.transform.Find("SelfContent").Find("EvacuateButton").GetComponent<RectTransform>().anchoredPosition = new Vector2(0f, unitUI.transform.Find("SelfContent").Find("EvacuateButton").GetComponent<RectTransform>().anchoredPosition.y);
+        else
+            unitUI.transform.Find("SelfContent").Find("EvacuateButton").GetComponent<RectTransform>().anchoredPosition = new Vector2(-50f, unitUI.transform.Find("SelfContent").Find("EvacuateButton").GetComponent<RectTransform>().anchoredPosition.y);
+
         if (refUnit._Squad is Truck)
         {
             if (unitUI.transform.Find("SelfContent").Find("GetOnTruckButton").gameObject.activeSelf)
@@ -836,6 +867,7 @@ public class GameInputController : MonoBehaviour
             unitUI.transform.Find("SelfContent").Find("GetOnCargoPlaneButton").GetComponent<Button>().onClick.RemoveAllListeners();
             unitUI.transform.Find("SelfContent").Find("GetOnCargoPlaneButton").GetComponent<Button>().onClick.AddListener(SoundManager._Instance.PlayButtonSound);
             unitUI.transform.Find("SelfContent").Find("GetOnCargoPlaneButton").GetComponent<Button>().onClick.AddListener(() => GetOnCargoPlaneButtonClicked(refUnit));
+
         }
         else if (refUnit._CanCarryAnotherBigUnit)
         {
@@ -901,10 +933,6 @@ public class GameInputController : MonoBehaviour
             if (unitUI.transform.Find("SelfContent").Find("EvacuateButton").gameObject.activeSelf)
                 unitUI.transform.Find("SelfContent").Find("EvacuateButton").gameObject.SetActive(false);
         }
-
-
-        if (unitUI.transform.Find("SelfContent").Find("EvacuateButton").gameObject.activeSelf && !unitUI.transform.Find("SelfContent").Find("GetOnShipButton").gameObject.activeSelf)
-            unitUI.transform.Find("SelfContent").Find("EvacuateButton").GetComponent<RectTransform>().anchoredPosition = new Vector2(0f, unitUI.transform.Find("SelfContent").Find("EvacuateButton").GetComponent<RectTransform>().anchoredPosition.y);
     }
 
     private void ArrangeCityUI()
@@ -930,7 +958,7 @@ public class GameInputController : MonoBehaviour
         {
             CloseCityHover();
 
-            if (Mouse.current.leftButton.wasPressedThisFrame)
+            if (Mouse.current.leftButton.wasReleasedThisFrame)
             {
                 if (GameManager._Instance._InGameScreen.transform.Find("OtherInGameMenus").Find("Left").Find("City").gameObject.activeInHierarchy)
                     CloseAllInGameOtherUI();
@@ -1038,8 +1066,12 @@ public class GameInputController : MonoBehaviour
             else
                 obj.transform.Find("PotentialRouteGhost").gameObject.SetActive(false);
 
-            if (_CurrentPlayerOrder is MoveOrder)
-                (_CurrentPlayerOrder as MoveOrder).ArrangeOrderGhostForPlayer(obj, obj.transform.position, _CurrentPlayerOrder._OrderPosition, GameManager._Instance._InputActions.FindAction("Sprint").ReadValue<float>() != 0f || GameManager._Instance._InputActions.FindAction("Alt").ReadValue<float>() != 0f, -obj.transform.up.normalized);
+            if (_CurrentPlayerOrder is MoveOrder moveOrder)
+            {
+                obj.GetComponent<Unit>()._PotentialRoutePoints.Clear();
+                obj.GetComponent<Unit>()._PotentialRoutePoints.Add(moveOrder._OrderPosition);
+                moveOrder.ArrangeOrderGhostForPlayer(obj, obj.transform.position, obj.GetComponent<Unit>()._PotentialRoutePoints, GameManager._Instance._InputActions.FindAction("Sprint").ReadValue<float>() != 0f || GameManager._Instance._InputActions.FindAction("Alt").ReadValue<float>() != 0f, -obj.transform.up.normalized);
+            }
         }
     }
     private void ArrangeCurrentOrderToSelectedUnits()
@@ -1111,7 +1143,7 @@ public class GameInputController : MonoBehaviour
         {
             CloseUnitHover();
 
-            if (Mouse.current.leftButton.wasPressedThisFrame)
+            if (Mouse.current.leftButton.wasReleasedThisFrame && GameManager._Instance._InputActions.FindAction("Sprint").ReadValue<float>() == 0f)
             {
                 _SelectedUnits.ClearSelected();
                 if (GameManager._Instance._InGameScreen.transform.Find("OtherInGameMenus").Find("Left").Find("Army").gameObject.activeInHierarchy)
@@ -1267,7 +1299,7 @@ public class GameInputController : MonoBehaviour
 
     public bool IsSplitPossible(Unit unit)
     {
-        if (unit._Squad is ICarryUnit && (unit._Squad as ICarryUnit)._CurrentCarry != 0) return false;
+        if (unit._Squad is ICarryBigUnit && (unit._Squad as ICarryBigUnit)._CurrentCarry != 0) return false;
         if (unit._Squad is Truck && unit._Squad._AttachedUnit.transform.Find("CarryingUnits").childCount != 0) return false;
         int splitAmount = (int)(unit._Squad._Amount * _SplitPercent);
         if (unit._Squad._Amount <= 1 || splitAmount < 1 || splitAmount == unit._Squad._Amount) return false;
@@ -1313,7 +1345,18 @@ public class GameInputController : MonoBehaviour
         {
             TransportShip transportShipSquad = nearestShip.GetComponent<Unit>()._Squad as TransportShip;
             bool canSquadsGetOnShip = executerObject.GetComponent<Unit>()._CanGetOnAnotherUnit;
-            bool canSquadsFit = transportShipSquad != null ? (transportShipSquad._CarryLimit * transportShipSquad._Amount - transportShipSquad._CurrentCarry) >= executerObject.GetComponent<Unit>()._CarryWeight : false;
+
+            int realWeight = executerObject.GetComponent<Unit>()._CarryWeight;
+            if (executerObject.GetComponent<Unit>()._IsCarryingWithTruck)
+            {
+                if (!IsEvacuatePossible(executerObject.GetComponent<Unit>())) return false;
+                foreach (Transform carryingUnit in executerObject.transform.Find("CarryingUnits"))
+                {
+                    realWeight += carryingUnit.GetComponent<Unit>()._CarryWeight;
+                }
+            }
+            bool canSquadsFit = transportShipSquad != null ? (transportShipSquad._CarryLimit * transportShipSquad._Amount - transportShipSquad._CurrentCarry) >= realWeight : false;
+
             if (nearestShip != null && transportShipSquad != null && canSquadsGetOnShip && canSquadsFit)
             {
                 return true;
@@ -1331,7 +1374,18 @@ public class GameInputController : MonoBehaviour
         {
             Train trainSquad = nearestTrain.GetComponent<Unit>()._Squad as Train;
             bool canSquadsGetOnTrain = executerObject.GetComponent<Unit>()._CanGetOnAnotherUnit;
-            bool canSquadsFit = trainSquad != null ? (trainSquad._CarryLimit * trainSquad._Amount - trainSquad._CurrentCarry) >= executerObject.GetComponent<Unit>()._CarryWeight : false;
+
+            int realWeight = executerObject.GetComponent<Unit>()._CarryWeight;
+            if (executerObject.GetComponent<Unit>()._IsCarryingWithTruck)
+            {
+                if (!IsEvacuatePossible(executerObject.GetComponent<Unit>())) return false;
+                foreach (Transform carryingUnit in executerObject.transform.Find("CarryingUnits"))
+                {
+                    realWeight += carryingUnit.GetComponent<Unit>()._CarryWeight;
+                }
+            }
+            bool canSquadsFit = trainSquad != null ? (trainSquad._CarryLimit * trainSquad._Amount - trainSquad._CurrentCarry) >= realWeight : false;
+
             if (nearestTrain != null && trainSquad != null && canSquadsGetOnTrain && canSquadsFit)
             {
                 return true;
@@ -1349,7 +1403,18 @@ public class GameInputController : MonoBehaviour
         {
             CargoPlane cargoPlaneSquad = nearestCargoPlane.GetComponent<Unit>()._Squad as CargoPlane;
             bool canSquadsGetOnCargoPlane = executerObject.GetComponent<Unit>()._CanGetOnAnotherUnit;
-            bool canSquadsFit = cargoPlaneSquad != null ? (cargoPlaneSquad._CarryLimit * cargoPlaneSquad._Amount - cargoPlaneSquad._CurrentCarry) >= executerObject.GetComponent<Unit>()._CarryWeight : false;
+
+            int realWeight = executerObject.GetComponent<Unit>()._CarryWeight;
+            if (executerObject.GetComponent<Unit>()._IsCarryingWithTruck)
+            {
+                if (!IsEvacuatePossible(executerObject.GetComponent<Unit>())) return false;
+                foreach (Transform carryingUnit in executerObject.transform.Find("CarryingUnits"))
+                {
+                    realWeight += carryingUnit.GetComponent<Unit>()._CarryWeight;
+                }
+            }
+            bool canSquadsFit = cargoPlaneSquad != null ? (cargoPlaneSquad._CarryLimit * cargoPlaneSquad._Amount - cargoPlaneSquad._CurrentCarry) >= realWeight : false;
+
             if (nearestCargoPlane != null && cargoPlaneSquad != null && canSquadsGetOnCargoPlane && canSquadsFit)
             {
                 return true;
@@ -1357,7 +1422,7 @@ public class GameInputController : MonoBehaviour
         }
         return false;
     }
-    private bool IsEvacuatePossible(Unit unit)
+    public bool IsEvacuatePossible(Unit unit)
     {
         if (unit._IsNaval)
             return IsEvacuateShipPossible(unit.gameObject);
